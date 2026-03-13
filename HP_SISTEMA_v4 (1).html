@@ -650,7 +650,6 @@ function App() {
   // ── DATA ────────────────────────────────────────────────────────────
   const [cadastros,setCadastros]     = useState([]);
   const [financeiros,setFinanceiros] = useState([]);
-  const [saldoInicial,setSaldoInicial] = useState(1720000);
   const [certifiers,setCertifiers]   = useState(DEFAULT_CERTIFIERS);
   const [dataReady,setDataReady]     = useState(false);
 
@@ -713,8 +712,7 @@ function App() {
     db.collection("config").doc("app").get().then(d=>{
       if(d.exists){
         const cfg = d.data();
-        if(cfg.saldoInicial!=null) setSaldoInicial(cfg.saldoInicial);
-        if(cfg.certifiers)         setCertifiers(cfg.certifiers);
+        if(cfg.certifiers) setCertifiers(cfg.certifiers);
       }
       setDataReady(true);
     }).catch(()=>setDataReady(true));
@@ -723,18 +721,13 @@ function App() {
   },[currentUser]);
 
   // ── SAVE CONFIG ──────────────────────────────────────────────────────
-  const saveConfig = async (saldo, certs) => {
-    await FS.set("config","app",{saldoInicial:saldo, certifiers:certs});
-  };
-
-  const updateSaldo = async (val) => {
-    setSaldoInicial(val);
-    await saveConfig(val, certifiers);
+  const saveConfig = async (certs) => {
+    await FS.set("config","app",{certifiers:certs});
   };
 
   const updateCertifiers = async (list) => {
     setCertifiers(list);
-    await saveConfig(saldoInicial, list);
+    await saveConfig(list);
     showToast("Certificadoras salvas!");
     setShowCertMgr(false);
   };
@@ -890,13 +883,7 @@ function App() {
               </table>
             </div>
           </div>
-          {isAdmin&&<div className="card" style={{padding:"14px 20px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:16}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:".1em",color:"#7A8299",textTransform:"uppercase",whiteSpace:"nowrap"}}>Saldo Inicial (Base)</div>
-              <input type="number" value={saldoInicial} onChange={e=>setSaldoInicial(parseFloat(e.target.value)||0)} onBlur={e=>updateSaldo(parseFloat(e.target.value)||0)} style={{width:200}}/>
-              <div style={{fontSize:12,color:"#7A8299"}}>Valor base para cálculo do saldo corrente</div>
-            </div>
-          </div>}
+
         </div>}
 
         {/* ── CADASTRO ─────────────────────────────────────────── */}
