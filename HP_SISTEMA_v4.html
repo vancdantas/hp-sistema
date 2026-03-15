@@ -536,7 +536,7 @@ const emptyLote = () => ({
   id:"l"+Date.now()+Math.random().toString(36).slice(2,7),
   codigo:"",cu_pct:"",cert_cu_pct:"",vl_ponto_cu:"",valor_cu:"",
   au_gr:"",cert_au:"",ponto_au:"",valor_au:"",
-  peso:"",umidade:"",peso_seco:"",certificadora:"ASA",invoice:"",
+  umidade:"",certificadora:"ASA",invoice:"",
   custo_total:0,containers:[]
 });
 const emptyCntr = () => ({
@@ -544,49 +544,99 @@ const emptyCntr = () => ({
   numero:"",peso_bruto:"",peso_liquido:"",obs:""
 });
 
-const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving}) => {
-  const [op,setOp]   = useState(initial ? {operacao:initial.operacao||"",cliente:initial.cliente||"",data:initial.data||today()} : {operacao:"",cliente:"",data:today()});
-  const [lotes,setLotes] = useState(initial?.lotes?.length ? initial.lotes : []);
-  const [selId,setSelId] = useState(null);
-  const [loteTab,setLoteTab] = useState("dados");
-  const [addCntr,setAddCntr] = useState(false);
-  const [newCntr,setNewCntr] = useState(emptyCntr());
+// Gera o ID da operação: 6 seq + 6 cliente + 8 data
+const genOpId = (seq,cliente,data) => {
+  const s = String(seq||1).padStart(6,"0");
+  const c = (cliente||"").replace(/\s+/g,"").toUpperCase().substring(0,6).padEnd(6,"0");
+  const d = (data||"").replace(/-/g,"").substring(0,8).padEnd(8,"0");
+  return s+c+d;
+};
+// Peso do lote = soma dos Net Weight dos containers
+const calcPeso    = l => l.containers.reduce((a,c)=>a+(parseFloat(c.peso_liquido)||0),0);
+// Peso seco = peso * (1 - umidade/100)
+const calcPesoSeco = l => { const p=calcPeso(l); const u=parseFloat(l.umidade)||0; return p*(1-u/100); };
+
+const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,opSeq}) => {
+  const [op,setOp] = useState(initial
+    ? {operacao:initial.operacao||"",cliente:initial.cliente||"",data:initial.data||today(),id_operacao:initial.id_operacao||""}
+    : {operacao:"",cliente:"",data:today(),id_operacao:""});
+  const [lotes,setLotes]       = useState(initial?.lotes?.length ? initial.lotes : []);
+  const [selId,setSelId]       = useState(null);
+  const [loteTab,setLoteTab]   = useState("dados");
+  // lote edit buffer
+  const [editLId,setEditLId]   = useState(null);
+  const [editLBuf,setEditLBuf] = useState(null);
+  // container add / edit
+  const [addCntr,setAddCntr]   = useState(false);
+  const [newCntr,setNewCntr]   = useState(emptyCntr());
+  const [editCId,setEditCId]   = useState(null);
+  const [editCBuf,setEditCBuf] = useState(null);
+
+  // Auto-gerar ID ao mudar cliente ou data (só em nova operação)
+  useEffect(()=>{
+    if(!initial?.id) setOp(p=>({...p,id_operacao:genOpId(opSeq,p.cliente,p.data)}));
+  },[op.cliente,op.data]);
 
   const selLote = lotes.find(l=>l.id===selId)||null;
+  const isEditL = editLId===selId;
+  const loteView = isEditL ? editLBuf : selLote;
 
-  const upLote = (k,v) => setLotes(ls=>ls.map(l=>{
-    if(l.id!==selId) return l;
-    const u={...l,[k]:v};
+  // ── Lote CRUD ──
+  const startEditL = l => { setEditLId(l.id); setEditLBuf({...l}); };
+  const cancelEditL = () => { setEditLId(null); setEditLBuf(null); };
+  const saveEditL = () => {
+    setLotes(ls=>ls.map(l=>l.id===editLId?{...editLBuf,id:editLId}:l));
+    setEditLId(null); setEditLBuf(null);
+  };
+  const upBuf = (k,v) => setEditLBuf(p=>{
+    const u={...p,[k]:v};
     if(k==="valor_cu"||k==="valor_au"){
-      u.custo_total=(k==="valor_cu"?parseFloat(v)||0:parseFloat(l.valor_cu)||0)+(k==="valor_au"?parseFloat(v)||0:parseFloat(l.valor_au)||0);
-    }
-    if(k==="peso"||k==="umidade"){
-      const p=k==="peso"?parseFloat(v)||0:parseFloat(l.peso)||0;
-      const h=k==="umidade"?parseFloat(v)||0:parseFloat(l.umidade)||0;
-      if(p>0) u.peso_seco=(p*(1-h/100)).toFixed(3);
+      u.custo_total=(k==="valor_cu"?parseFloat(v)||0:parseFloat(p.valor_cu)||0)+(k==="valor_au"?parseFloat(v)||0:parseFloat(p.valor_au)||0);
     }
     return u;
-  }));
+  });
+  const addLote = () => {
+    const l=emptyLote();
+    setLotes(ls=>[...ls,l]);
+    setSelId(l.id);
+    setLoteTab("dados");
+    startEditL(l);
+  };
+  const delLote = id => {
+    if(!confirm("Excluir este lote?"))return;
+    setLotes(ls=>ls.filter(l=>l.id!==id));
+    if(selId===id){ setSelId(lotes.find(l=>l.id!==id)?.id||null); cancelEditL(); }
+  };
 
-  const addLote = () => { const l=emptyLote(); setLotes(ls=>[...ls,l]); setSelId(l.id); setLoteTab("dados"); };
-  const delLote = id => { if(!confirm("Excluir este lote?"))return; setLotes(ls=>ls.filter(l=>l.id!==id)); if(selId===id)setSelId(lotes.find(l=>l.id!==id)?.id||null); };
-  const saveCntr = () => { if(!newCntr.numero.trim())return; setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:[...l.containers,newCntr]}:l)); setNewCntr(emptyCntr()); setAddCntr(false); };
-  const delCntr  = cid => setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:l.containers.filter(c=>c.id!==cid)}:l));
+  // ── Container CRUD ──
+  const saveCntr = () => {
+    if(!newCntr.numero.trim())return;
+    setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:[...l.containers,newCntr]}:l));
+    setNewCntr(emptyCntr()); setAddCntr(false);
+  };
+  const startEditC = c => { setEditCId(c.id); setEditCBuf({...c}); };
+  const cancelEditC = () => { setEditCId(null); setEditCBuf(null); };
+  const saveEditC = () => {
+    setLotes(ls=>ls.map(l=>l.id!==selId?l:{...l,containers:l.containers.map(c=>c.id===editCId?editCBuf:c)}));
+    setEditCId(null); setEditCBuf(null);
+  };
+  const delCntr = cid => setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:l.containers.filter(c=>c.id!==cid)}:l));
 
   const totalOp = lotes.reduce((a,l)=>a+(parseFloat(l.custo_total)||0),0);
 
   const handleSave = () => {
-    if(!op.operacao.trim()){alert("Informe o nome da operação.");return;}
-    onSave({...op, lotes, custo_total:totalOp});
+    if(!op.operacao.trim()){alert("Informe a identificação da operação.");return;}
+    const lotesCalc = lotes.map(l=>({...l,peso:calcPeso(l).toFixed(3),peso_seco:calcPesoSeco(l).toFixed(3)}));
+    onSave({...op,lotes:lotesCalc,custo_total:totalOp});
   };
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
       {/* TOP BAR */}
-      <div style={{padding:"16px 22px",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+      <div style={{padding:"14px 22px",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
         <div>
           <div className="section-title" style={{fontSize:18}}>{initial?.id?"EDITAR OPERAÇÃO":"NOVA OPERAÇÃO"}</div>
-          {initial?.id&&<div style={{fontSize:11,color:"#7A8299",marginTop:2}}>ID: {initial.id}</div>}
+          {op.id_operacao&&<div style={{fontSize:11,color:"#7A8299",fontFamily:"'IBM Plex Mono',monospace",marginTop:2}}>ID: <span style={{color:"#C9A84C"}}>{op.id_operacao}</span></div>}
         </div>
         <div style={{display:"flex",gap:8}}>
           <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancelar</button>
@@ -596,45 +646,54 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving})
 
       {/* CABEÇALHO */}
       <div style={{padding:"14px 22px",borderBottom:"1px solid #2E3650",background:"rgba(30,35,48,.5)",flexShrink:0}}>
-        <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>CABEÇALHO DA OPERAÇÃO</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 160px",gap:"10px 14px"}}>
-          <FG label="Operação"><input value={op.operacao} onChange={e=>setOp(p=>({...p,operacao:e.target.value}))} placeholder="Ex: LOTE 1 MING"/></FG>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 200px",gap:"10px 14px"}}>
+          <FG label="Identificação da Operação"><input value={op.operacao} onChange={e=>setOp(p=>({...p,operacao:e.target.value.toUpperCase()}))} placeholder="Ex: LOTE 1 MING"/></FG>
           <FG label="Cliente"><input value={op.cliente} onChange={e=>setOp(p=>({...p,cliente:e.target.value}))} placeholder="Nome do cliente"/></FG>
-          <FG label="Data"><input type="date" value={op.data} onChange={e=>setOp(p=>({...p,data:e.target.value}))}/></FG>
+          <FG label="Data">
+            <input type="date" value={op.data}
+              onChange={e=>setOp(p=>({...p,data:e.target.value}))}
+              onBlur={e=>{const v=e.target.value;if(v)setOp(p=>({...p,data:v}));}}
+              style={{cursor:"pointer"}}/>
+          </FG>
         </div>
       </div>
 
       {/* BODY */}
       <div style={{display:"flex",flex:1,minHeight:0,overflow:"hidden"}}>
 
-        {/* ESQUERDA: LISTA DE LOTES */}
-        <div style={{width:250,borderRight:"1px solid #2E3650",display:"flex",flexDirection:"column",flexShrink:0}}>
+        {/* LISTA DE LOTES */}
+        <div style={{width:260,borderRight:"1px solid #2E3650",display:"flex",flexDirection:"column",flexShrink:0}}>
           <div style={{padding:"10px 14px",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{fontSize:11,fontWeight:700,letterSpacing:".1em",color:"#C9A84C",textTransform:"uppercase"}}>Lotes <span style={{color:"#7A8299",fontWeight:400}}>({lotes.length})</span></div>
             <button className="btn btn-gold btn-sm" style={{padding:"4px 10px",fontSize:11}} onClick={addLote}>+ Novo</button>
           </div>
           <div style={{flex:1,overflowY:"auto"}}>
             {lotes.length===0&&<div style={{padding:"24px 14px",textAlign:"center",color:"#7A8299",fontSize:12,lineHeight:1.7}}>Nenhum lote.<br/>Clique em + Novo.</div>}
-            {lotes.map(l=>(
-              <div key={l.id} onClick={()=>{setSelId(l.id);setLoteTab("dados");}}
+            {lotes.map(l=>{
+              const pesoL=calcPeso(l);
+              const isSelL=l.id===selId;
+              return (
+              <div key={l.id} onClick={()=>{setSelId(l.id);if(editLId!==l.id){cancelEditL();}}}
                 style={{padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #2E3650",
-                  background:l.id===selId?"rgba(201,168,76,.08)":"transparent",
-                  borderLeft:l.id===selId?"3px solid #C9A84C":"3px solid transparent",transition:"all .12s"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                  <div style={{minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:600,color:l.id===selId?"#C9A84C":"#E8ECF4",fontFamily:"'IBM Plex Mono',monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  background:isSelL?"rgba(201,168,76,.08)":"transparent",
+                  borderLeft:isSelL?"3px solid #C9A84C":"3px solid transparent",transition:"all .12s"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:6}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:12,fontWeight:600,color:isSelL?"#C9A84C":"#E8ECF4",fontFamily:"'IBM Plex Mono',monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                       {l.codigo||<span style={{color:"#7A8299",fontStyle:"italic",fontWeight:400}}>Sem código</span>}
                     </div>
-                    <div style={{fontSize:10,color:"#7A8299",marginTop:2}}>{l.containers.length} container(s)</div>
+                    <div style={{fontSize:10,color:"#7A8299",marginTop:2}}>{l.containers.length} container(s) · {pesoL>0?fmt(pesoL)+" kg":"—"}</div>
+                    <div style={{fontSize:11,color:"#2ECC71",fontFamily:"'IBM Plex Mono',monospace",marginTop:2}}>{l.custo_total>0?fmtCur(l.custo_total):"—"}</div>
                   </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
-                    <div style={{fontSize:11,color:"#2ECC71",fontFamily:"'IBM Plex Mono',monospace"}}>{l.custo_total>0?fmtCur(l.custo_total):"—"}</div>
-                    <button className="btn btn-danger" style={{padding:"1px 7px",fontSize:10,marginTop:3}}
+                  <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
+                    <button className="btn btn-outline btn-sm" style={{padding:"2px 8px",fontSize:10}}
+                      onClick={e=>{e.stopPropagation();setSelId(l.id);startEditL(l);setLoteTab("dados");}}>✎ Editar</button>
+                    <button className="btn btn-danger" style={{padding:"2px 8px",fontSize:10}}
                       onClick={e=>{e.stopPropagation();delLote(l.id);}}>✕</button>
                   </div>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
           <div style={{padding:"10px 14px",borderTop:"1px solid #2E3650",background:"#1E2330",flexShrink:0}}>
             <div style={{fontSize:10,letterSpacing:".08em",color:"#7A8299",textTransform:"uppercase",marginBottom:2}}>Custo total da operação</div>
@@ -642,7 +701,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving})
           </div>
         </div>
 
-        {/* DIREITA: DETALHE DO LOTE */}
+        {/* DETALHE DO LOTE */}
         <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column"}}>
           {!selLote ? (
             <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,color:"#7A8299"}}>
@@ -652,81 +711,137 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving})
             </div>
           ) : (
             <>
-              <div style={{borderBottom:"1px solid #2E3650",display:"flex",padding:"0 20px",flexShrink:0,background:"rgba(30,35,48,.4)"}}>
-                {[["dados","DADOS DO LOTE"],["containers","CONTAINERS"+(selLote.containers.length>0?" ("+selLote.containers.length+")":"")]].map(([k,label])=>(
-                  <button key={k} onClick={()=>setLoteTab(k)}
-                    style={{background:"transparent",border:"none",borderBottom:loteTab===k?"2px solid #C9A84C":"2px solid transparent",
-                      color:loteTab===k?"#C9A84C":"#7A8299",padding:"10px 18px",fontSize:11,fontWeight:700,
-                      letterSpacing:".08em",cursor:"pointer"}}>
-                    {label}
-                  </button>
-                ))}
+              {/* ABAS */}
+              <div style={{borderBottom:"1px solid #2E3650",display:"flex",padding:"0 20px",flexShrink:0,background:"rgba(30,35,48,.4)",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex"}}>
+                  {[["dados","DADOS DO LOTE"],["containers","CONTAINERS"+(selLote.containers.length>0?" ("+selLote.containers.length+")":"")]].map(([k,label])=>(
+                    <button key={k} onClick={()=>setLoteTab(k)}
+                      style={{background:"transparent",border:"none",borderBottom:loteTab===k?"2px solid #C9A84C":"2px solid transparent",
+                        color:loteTab===k?"#C9A84C":"#7A8299",padding:"10px 16px",fontSize:11,fontWeight:700,letterSpacing:".08em",cursor:"pointer"}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {/* Badge modo edição / visualização */}
+                {loteTab==="dados"&&(
+                  isEditL
+                    ? <div style={{display:"flex",gap:6}}>
+                        <button className="btn btn-outline btn-sm" style={{fontSize:10}} onClick={cancelEditL}>Cancelar</button>
+                        <button className="btn btn-gold btn-sm" style={{fontSize:10}} onClick={saveEditL}>💾 Salvar Lote</button>
+                      </div>
+                    : <div style={{fontSize:10,color:"#7A8299",padding:"0 4px"}}>Clique em <strong style={{color:"#C9A84C"}}>✎ Editar</strong> para alterar</div>
+                )}
               </div>
 
-              {loteTab==="dados"&&(
+              {/* ABA DADOS DO LOTE */}
+              {loteTab==="dados"&&loteView&&(()=>{
+                const peso    = calcPeso(selLote);
+                const pesoSeco= calcPesoSeco({...selLote,umidade:isEditL?editLBuf.umidade:selLote.umidade});
+                return (
                 <div style={{padding:"18px 22px"}}>
+                  {/* Identificação */}
                   <div style={{marginBottom:12}}>
                     <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>IDENTIFICAÇÃO DO LOTE</div>
-                    <Grid cols={2} style={{maxWidth:480}}>
-                      <FG label="Código do Lote"><input value={selLote.codigo} onChange={e=>upLote("codigo",e.target.value)} placeholder="Ex: GR008"/></FG>
-                      <FG label="Invoice"><input value={selLote.invoice} onChange={e=>upLote("invoice",e.target.value)} placeholder="Número"/></FG>
-                    </Grid>
+                    {isEditL
+                      ? <Grid cols={2} style={{maxWidth:480}}>
+                          <FG label="Código do Lote"><input value={editLBuf.codigo} onChange={e=>upBuf("codigo",e.target.value.toUpperCase())} placeholder="Ex: GR008" autoFocus/></FG>
+                          <FG label="Invoice"><input value={editLBuf.invoice} onChange={e=>upBuf("invoice",e.target.value)} placeholder="Número"/></FG>
+                        </Grid>
+                      : <div style={{display:"flex",gap:24,fontFamily:"'IBM Plex Mono',monospace",fontSize:13}}>
+                          <span><span style={{color:"#7A8299",fontSize:10}}>CÓDIGO: </span><span style={{color:"#C9A84C"}}>{selLote.codigo||"—"}</span></span>
+                          <span><span style={{color:"#7A8299",fontSize:10}}>INVOICE: </span>{selLote.invoice||"—"}</span>
+                        </div>
+                    }
                   </div>
                   <div className="divider"/>
+                  {/* CU */}
                   <div style={{marginBottom:12}}>
                     <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>COBRE (CU)</div>
-                    <Grid cols={4}>
-                      <FG label="CU %"><input type="number" step="0.0001" value={selLote.cu_pct} onChange={e=>upLote("cu_pct",e.target.value)} placeholder="0.0000"/></FG>
-                      <FG label="CERT – CU %"><input type="number" step="0.0001" value={selLote.cert_cu_pct} onChange={e=>upLote("cert_cu_pct",e.target.value)} placeholder="0.0000"/></FG>
-                      <FG label="Valor Ponto CU"><input type="number" step="0.01" value={selLote.vl_ponto_cu} onChange={e=>upLote("vl_ponto_cu",e.target.value)} placeholder="0.00"/></FG>
-                      <FG label="Valor CU (R$)"><input type="number" step="0.01" value={selLote.valor_cu} onChange={e=>upLote("valor_cu",e.target.value)} placeholder="0.00"/></FG>
-                    </Grid>
+                    {isEditL
+                      ? <Grid cols={4}>
+                          <FG label="CU %"><input type="number" step="0.0001" value={editLBuf.cu_pct} onChange={e=>upBuf("cu_pct",e.target.value)} placeholder="0.0000"/></FG>
+                          <FG label="CERT – CU %"><input type="number" step="0.0001" value={editLBuf.cert_cu_pct} onChange={e=>upBuf("cert_cu_pct",e.target.value)} placeholder="0.0000"/></FG>
+                          <FG label="Valor Ponto CU"><input type="number" step="0.01" value={editLBuf.vl_ponto_cu} onChange={e=>upBuf("vl_ponto_cu",e.target.value)} placeholder="0.00"/></FG>
+                          <FG label="Valor CU (R$)"><input type="number" step="0.01" value={editLBuf.valor_cu} onChange={e=>upBuf("valor_cu",e.target.value)} placeholder="0.00"/></FG>
+                        </Grid>
+                      : <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px 14px",fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>
+                          {[["CU %",fmtPct(selLote.cu_pct)],["CERT CU %",fmtPct(selLote.cert_cu_pct)],["Ponto CU",fmtCur(selLote.vl_ponto_cu)],["Valor CU",fmtCur(selLote.valor_cu)]].map(([k,v])=>
+                            <div key={k}><div style={{fontSize:9,color:"#7A8299",marginBottom:2}}>{k}</div><div style={{color:"#C9A84C"}}>{v}</div></div>)}
+                        </div>
+                    }
                   </div>
                   <div className="divider"/>
+                  {/* AU */}
                   <div style={{marginBottom:12}}>
                     <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>OURO (AU)</div>
-                    <Grid cols={4}>
-                      <FG label="AU – GR"><input type="number" step="0.0001" value={selLote.au_gr} onChange={e=>upLote("au_gr",e.target.value)} placeholder="0.0000"/></FG>
-                      <FG label="CERT – AU"><input type="number" step="0.0001" value={selLote.cert_au} onChange={e=>upLote("cert_au",e.target.value)} placeholder="0.0000"/></FG>
-                      <FG label="Ponto AU – GR"><input type="number" step="0.01" value={selLote.ponto_au} onChange={e=>upLote("ponto_au",e.target.value)} placeholder="0.00"/></FG>
-                      <FG label="Valor AU (R$)"><input type="number" step="0.01" value={selLote.valor_au} onChange={e=>upLote("valor_au",e.target.value)} placeholder="0.00"/></FG>
-                    </Grid>
+                    {isEditL
+                      ? <Grid cols={4}>
+                          <FG label="AU – GR"><input type="number" step="0.0001" value={editLBuf.au_gr} onChange={e=>upBuf("au_gr",e.target.value)} placeholder="0.0000"/></FG>
+                          <FG label="CERT – AU"><input type="number" step="0.0001" value={editLBuf.cert_au} onChange={e=>upBuf("cert_au",e.target.value)} placeholder="0.0000"/></FG>
+                          <FG label="Ponto AU – GR"><input type="number" step="0.01" value={editLBuf.ponto_au} onChange={e=>upBuf("ponto_au",e.target.value)} placeholder="0.00"/></FG>
+                          <FG label="Valor AU (R$)"><input type="number" step="0.01" value={editLBuf.valor_au} onChange={e=>upBuf("valor_au",e.target.value)} placeholder="0.00"/></FG>
+                        </Grid>
+                      : <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px 14px",fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>
+                          {[["AU GR",fmt(selLote.au_gr)],["CERT AU",fmt(selLote.cert_au)],["Ponto AU",fmtCur(selLote.ponto_au)],["Valor AU",fmtCur(selLote.valor_au)]].map(([k,v])=>
+                            <div key={k}><div style={{fontSize:9,color:"#7A8299",marginBottom:2}}>{k}</div><div style={{color:"#C9A84C"}}>{v}</div></div>)}
+                        </div>
+                    }
                   </div>
                   <div className="divider"/>
+                  {/* PESO & CERT */}
                   <div style={{marginBottom:14}}>
                     <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>PESO & CERTIFICAÇÃO</div>
-                    <Grid cols={4}>
-                      <FG label="Peso (kg)"><input type="number" step="0.001" value={selLote.peso} onChange={e=>upLote("peso",e.target.value)} placeholder="0.000"/></FG>
-                      <FG label="Umidade %"><input type="number" step="0.01" value={selLote.umidade} onChange={e=>upLote("umidade",e.target.value)} placeholder="0.00"/></FG>
-                      <FG label="Peso Seco (kg)"><input type="number" step="0.001" value={selLote.peso_seco} onChange={e=>upLote("peso_seco",e.target.value)} placeholder="Auto"/></FG>
-                      <FG label={<span style={{display:"flex",alignItems:"center",gap:6}}>Certificadora<button onClick={onManageCerts} style={{background:"none",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:10}}>+ Gerenciar</button></span>}>
-                        <select value={selLote.certificadora} onChange={e=>upLote("certificadora",e.target.value)}>{certifiers.map(c=><option key={c}>{c}</option>)}</select>
-                      </FG>
-                    </Grid>
+                    {isEditL
+                      ? <Grid cols={4}>
+                          {/* Peso kg — readonly, calculado dos containers */}
+                          <FG label="Peso (kg) — auto">
+                            <input type="number" value={peso.toFixed(3)} readOnly
+                              style={{background:"rgba(30,35,48,.8)",color:"#7A8299",cursor:"not-allowed"}}
+                              title="Calculado automaticamente pela soma de Net Weight dos containers"/>
+                          </FG>
+                          <FG label="Umidade %"><input type="number" step="0.01" value={editLBuf.umidade} onChange={e=>upBuf("umidade",e.target.value)} placeholder="0.00"/></FG>
+                          {/* Peso Seco — readonly, calculado */}
+                          <FG label="Peso Seco (kg) — auto">
+                            <input type="number" value={pesoSeco.toFixed(3)} readOnly
+                              style={{background:"rgba(30,35,48,.8)",color:"#7A8299",cursor:"not-allowed"}}
+                              title="Peso × (1 − Umidade%)"/>
+                          </FG>
+                          <FG label={<span style={{display:"flex",alignItems:"center",gap:6}}>Certificadora<button onClick={onManageCerts} style={{background:"none",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:10}}>+ Gerenciar</button></span>}>
+                            <select value={editLBuf.certificadora} onChange={e=>upBuf("certificadora",e.target.value)}>{certifiers.map(c=><option key={c}>{c}</option>)}</select>
+                          </FG>
+                        </Grid>
+                      : <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px 14px",fontFamily:"'IBM Plex Mono',monospace",fontSize:12}}>
+                          {[["Peso (kg)",fmt(peso)],["Umidade %",selLote.umidade?selLote.umidade+"%":"—"],["Peso Seco (kg)",fmt(pesoSeco)],["Certificadora",selLote.certificadora||"—"]].map(([k,v])=>
+                            <div key={k}><div style={{fontSize:9,color:"#7A8299",marginBottom:2}}>{k}</div><div style={{color:"#E8ECF4"}}>{v}</div></div>)}
+                        </div>
+                    }
                   </div>
                   <div style={{background:"#1E2330",border:"1px solid #2E3650",borderRadius:6,padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <div>
                       <div style={{fontSize:10,letterSpacing:".1em",textTransform:"uppercase",color:"#7A8299"}}>Custo Total do Lote</div>
-                      <div style={{fontSize:22,fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,color:"#C9A84C"}}>{fmtCur(selLote.custo_total)}</div>
+                      <div style={{fontSize:22,fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,color:"#C9A84C"}}>{fmtCur(isEditL?editLBuf.custo_total:selLote.custo_total)}</div>
                     </div>
                     <div style={{fontSize:11,color:"#7A8299"}}>CU + AU</div>
                   </div>
                 </div>
-              )}
+              );})()}
 
+              {/* ABA CONTAINERS */}
               {loteTab==="containers"&&(
                 <div style={{padding:"18px 22px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
                     <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase"}}>CONTAINERS DO LOTE</div>
-                    <button className="btn btn-gold btn-sm" onClick={()=>{setAddCntr(true);setNewCntr(emptyCntr());}}>+ Adicionar Container</button>
+                    <button className="btn btn-gold btn-sm" onClick={()=>{setAddCntr(true);setNewCntr(emptyCntr());setEditCId(null);}}>+ Adicionar Container</button>
                   </div>
+
+                  {/* Formulário NOVO container */}
                   {addCntr&&(
                     <div style={{background:"#1E2330",border:"1px solid #C9A84C",borderRadius:6,padding:14,marginBottom:14}}>
                       <div style={{fontSize:10,fontWeight:700,color:"#C9A84C",letterSpacing:".1em",marginBottom:10}}>NOVO CONTAINER</div>
                       <Grid cols={4}>
-                        <FG label="Identificação"><input value={newCntr.numero} onChange={e=>setNewCntr(p=>({...p,numero:e.target.value}))} placeholder="Ex: CONT001" autoFocus/></FG>
-                        <FG label="Peso Bruto (kg)"><input type="number" step="0.001" value={newCntr.peso_bruto} onChange={e=>setNewCntr(p=>({...p,peso_bruto:e.target.value}))} placeholder="0.000"/></FG>
-                        <FG label="Peso Líquido (kg)"><input type="number" step="0.001" value={newCntr.peso_liquido} onChange={e=>setNewCntr(p=>({...p,peso_liquido:e.target.value}))} placeholder="0.000"/></FG>
+                        <FG label="Identificação"><input value={newCntr.numero} onChange={e=>setNewCntr(p=>({...p,numero:e.target.value.toUpperCase()}))} placeholder="Ex: CONT001" autoFocus/></FG>
+                        <FG label="Gross Weight (kg)"><input type="number" step="0.001" value={newCntr.peso_bruto} onChange={e=>setNewCntr(p=>({...p,peso_bruto:e.target.value}))} placeholder="0.000"/></FG>
+                        <FG label="Net Weight (kg)"><input type="number" step="0.001" value={newCntr.peso_liquido} onChange={e=>setNewCntr(p=>({...p,peso_liquido:e.target.value}))} placeholder="0.000"/></FG>
                         <FG label="Observações"><input value={newCntr.obs} onChange={e=>setNewCntr(p=>({...p,obs:e.target.value}))} placeholder="Opcional"/></FG>
                       </Grid>
                       <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
@@ -735,30 +850,51 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving})
                       </div>
                     </div>
                   )}
+
                   {selLote.containers.length===0&&!addCntr&&(
-                    <div style={{textAlign:"center",color:"#7A8299",padding:"32px 0",fontSize:12}}>Nenhum container cadastrado. Clique em "+ Adicionar Container".</div>
+                    <div style={{textAlign:"center",color:"#7A8299",padding:"32px 0",fontSize:12}}>Nenhum container. Clique em "+ Adicionar Container".</div>
                   )}
+
                   {selLote.containers.length>0&&(
                     <>
                       <table>
-                        <thead><tr><th>#</th><th>Identificação</th><th>Peso Bruto (kg)</th><th>Peso Líquido (kg)</th><th>Observações</th><th style={{textAlign:"center"}}>Ações</th></tr></thead>
+                        <thead><tr><th>#</th><th>Identificação</th><th>Gross Weight (kg)</th><th>Net Weight (kg)</th><th>Observações</th><th style={{textAlign:"center",minWidth:110}}>Ações</th></tr></thead>
                         <tbody>
                           {selLote.containers.map((c,i)=>(
-                            <tr key={c.id}>
-                              <td className="text-muted">{i+1}</td>
-                              <td className="text-gold">{c.numero}</td>
-                              <td>{fmt(c.peso_bruto)}</td>
-                              <td>{fmt(c.peso_liquido)}</td>
-                              <td style={{color:"#7A8299"}}>{c.obs||"—"}</td>
-                              <td style={{textAlign:"center"}}><button className="btn btn-danger" onClick={()=>delCntr(c.id)}>✕</button></td>
-                            </tr>
+                            editCId===c.id
+                            ? <tr key={c.id} style={{background:"rgba(201,168,76,.05)"}}>
+                                <td className="text-muted">{i+1}</td>
+                                <td><input value={editCBuf.numero} onChange={e=>setEditCBuf(p=>({...p,numero:e.target.value.toUpperCase()}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}} autoFocus/></td>
+                                <td><input type="number" step="0.001" value={editCBuf.peso_bruto} onChange={e=>setEditCBuf(p=>({...p,peso_bruto:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
+                                <td><input type="number" step="0.001" value={editCBuf.peso_liquido} onChange={e=>setEditCBuf(p=>({...p,peso_liquido:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
+                                <td><input value={editCBuf.obs} onChange={e=>setEditCBuf(p=>({...p,obs:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
+                                <td style={{textAlign:"center"}}>
+                                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                                    <button className="btn btn-outline btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={cancelEditC}>✕</button>
+                                    <button className="btn btn-gold btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={saveEditC}>💾</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            : <tr key={c.id}>
+                                <td className="text-muted">{i+1}</td>
+                                <td className="text-gold">{c.numero}</td>
+                                <td>{fmt(c.peso_bruto)}</td>
+                                <td>{fmt(c.peso_liquido)}</td>
+                                <td style={{color:"#7A8299"}}>{c.obs||"—"}</td>
+                                <td style={{textAlign:"center"}}>
+                                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                                    <button className="btn btn-outline btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={()=>startEditC(c)}>✎</button>
+                                    <button className="btn btn-danger" style={{padding:"3px 8px"}} onClick={()=>delCntr(c.id)}>✕</button>
+                                  </div>
+                                </td>
+                              </tr>
                           ))}
                         </tbody>
                       </table>
                       <div style={{marginTop:10,display:"flex",gap:20,fontSize:11,color:"#7A8299"}}>
                         <span>Total: <strong style={{color:"#E8ECF4"}}>{selLote.containers.length}</strong></span>
-                        <span>Peso bruto: <strong style={{color:"#C9A84C"}}>{fmt(selLote.containers.reduce((a,c)=>a+(parseFloat(c.peso_bruto)||0),0))} kg</strong></span>
-                        <span>Peso líquido: <strong style={{color:"#C9A84C"}}>{fmt(selLote.containers.reduce((a,c)=>a+(parseFloat(c.peso_liquido)||0),0))} kg</strong></span>
+                        <span>Gross Weight: <strong style={{color:"#C9A84C"}}>{fmt(selLote.containers.reduce((a,c)=>a+(parseFloat(c.peso_bruto)||0),0))} kg</strong></span>
+                        <span>Net Weight: <strong style={{color:"#2ECC71"}}>{fmt(selLote.containers.reduce((a,c)=>a+(parseFloat(c.peso_liquido)||0),0))} kg</strong></span>
                       </div>
                     </>
                   )}
@@ -777,21 +913,80 @@ const emptyFin = () => ({data:today(),lote:"",operacao:"",cliente:"",valor:"",fo
 const FinanceiroForm = ({initial,onSave,onCancel,cadastros,saving}) => {
   const [f,setF] = useState(initial||emptyFin());
   const s = (k,v) => setF(p=>({...p,[k]:v}));
-  const clientes = [...new Set(cadastros.map(c=>c.cliente).filter(Boolean))];
-  const lotes    = [...new Set(cadastros.flatMap(c=>c.lotes?.map(l=>l.codigo)||[c.lote]).filter(Boolean))];
-  const ops      = [...new Set(cadastros.map(c=>c.operacao).filter(Boolean))];
+
+  // Lista de clientes únicos
+  const clientes = [...new Set(cadastros.map(c=>c.cliente).filter(Boolean))].sort();
+
+  // Operações filtradas pelo cliente selecionado
+  const opsDoCliente = f.cliente
+    ? [...new Set(cadastros.filter(c=>c.cliente===f.cliente).map(c=>c.operacao).filter(Boolean))].sort()
+    : [...new Set(cadastros.map(c=>c.operacao).filter(Boolean))].sort();
+
+  // Lotes filtrados pela operação selecionada (dentro do cliente)
+  const lotesDisponiveis = f.operacao
+    ? [...new Set(
+        cadastros
+          .filter(c=>(!f.cliente||c.cliente===f.cliente) && c.operacao===f.operacao)
+          .flatMap(c=>c.lotes?.map(l=>l.codigo)||[c.lote])
+          .filter(Boolean)
+      )].sort()
+    : [];
+
+  // Ao trocar cliente, limpar operação e lote dependentes
+  const onCliente = v => setF(p=>({...p,cliente:v,operacao:"",lote:""}));
+  // Ao trocar operação, limpar lote dependente
+  const onOperacao = v => setF(p=>({...p,operacao:v,lote:""}));
+
   return (
     <div style={{padding:28}}>
       <div style={{marginBottom:20}}><div className="section-title">{initial?.id?"EDITAR RECEBIMENTO":"NOVO RECEBIMENTO"}</div></div>
       <div className="divider"/>
       <Grid cols={3} style={{marginBottom:16}}>
-        <FG label="Data"><input type="date" value={f.data} onChange={e=>s("data",e.target.value)}/></FG>
-        <FG label="Cliente"><input list="cl-list" value={f.cliente} onChange={e=>s("cliente",e.target.value)} placeholder="Cliente"/><datalist id="cl-list">{clientes.map(c=><option key={c} value={c}/>)}</datalist></FG>
-        <FG label="Lote"><input list="lt-list" value={f.lote} onChange={e=>s("lote",e.target.value)} placeholder="Lote"/><datalist id="lt-list">{lotes.map(l=><option key={l} value={l}/>)}</datalist></FG>
-        <FG label="Operação"><input list="op-list" value={f.operacao} onChange={e=>s("operacao",e.target.value)} placeholder="Operação"/><datalist id="op-list">{ops.map(o=><option key={o} value={o}/>)}</datalist></FG>
-        <FG label="Valor (R$)"><input type="number" step="0.01" value={f.valor} onChange={e=>s("valor",e.target.value)} placeholder="0.00"/></FG>
-        <FG label="Forma de Pagamento"><select value={f.forma_pgto} onChange={e=>s("forma_pgto",e.target.value)}>{DEFAULT_PAYMENT.map(p=><option key={p}>{p}</option>)}</select></FG>
-        <div style={{gridColumn:"span 3"}}><FG label="Observações"><textarea rows={2} value={f.obs} onChange={e=>s("obs",e.target.value)} placeholder="Observações..." style={{resize:"vertical"}}/></FG></div>
+
+        {/* Linha 1: Data | Cliente | Operação */}
+        <FG label="Data">
+          <input type="date" value={f.data} onChange={e=>s("data",e.target.value)}/>
+        </FG>
+        <FG label="Cliente">
+          <select value={f.cliente} onChange={e=>onCliente(e.target.value)}
+            style={{color:f.cliente?"#E8ECF4":"#7A8299"}}>
+            <option value="">Selecione o cliente...</option>
+            {clientes.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+        </FG>
+        <FG label="Operação">
+          <select value={f.operacao} onChange={e=>onOperacao(e.target.value)}
+            disabled={!f.cliente}
+            style={{color:f.operacao?"#E8ECF4":"#7A8299",opacity:f.cliente?1:.6}}>
+            <option value="">{f.cliente?"Selecione a operação...":"— selecione o cliente primeiro —"}</option>
+            {opsDoCliente.map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        </FG>
+
+        {/* Linha 2: Lote | Valor | Forma Pgto */}
+        <FG label="Lote">
+          <select value={f.lote} onChange={e=>s("lote",e.target.value)}
+            disabled={!f.operacao}
+            style={{color:f.lote?"#E8ECF4":"#7A8299",opacity:f.operacao?1:.6}}>
+            <option value="">{f.operacao?"Selecione o lote...":"— selecione a operação primeiro —"}</option>
+            {lotesDisponiveis.map(l=><option key={l} value={l}>{l}</option>)}
+          </select>
+        </FG>
+        <FG label="Valor (R$)">
+          <input type="number" step="0.01" value={f.valor} onChange={e=>s("valor",e.target.value)} placeholder="0.00"/>
+        </FG>
+        <FG label="Forma de Pagamento">
+          <select value={f.forma_pgto} onChange={e=>s("forma_pgto",e.target.value)}>
+            {DEFAULT_PAYMENT.map(p=><option key={p}>{p}</option>)}
+          </select>
+        </FG>
+
+        {/* Linha 3: Observações */}
+        <div style={{gridColumn:"span 3"}}>
+          <FG label="Observações">
+            <textarea rows={2} value={f.obs} onChange={e=>s("obs",e.target.value)} placeholder="Observações..." style={{resize:"vertical"}}/>
+          </FG>
+        </div>
       </Grid>
       <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
         <button className="btn btn-outline" onClick={onCancel}>Cancelar</button>
@@ -1040,7 +1235,7 @@ function App() {
       {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
 
       {showCadForm&&<div className="modal-overlay"><div className="modal fade-in" style={{maxWidth:1100,height:"88vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <CadastroForm initial={editCad} onSave={saveCad} onCancel={()=>{setShowCadForm(false);setEditCad(null);}} certifiers={certifiers} onManageCerts={()=>setShowCertMgr(true)} saving={saving}/>
+        <CadastroForm initial={editCad} onSave={saveCad} onCancel={()=>{setShowCadForm(false);setEditCad(null);}} certifiers={certifiers} onManageCerts={()=>setShowCertMgr(true)} saving={saving} opSeq={editCad?null:cadastros.length+1}/>
       </div></div>}
       {showFinForm&&<div className="modal-overlay"><div className="modal fade-in" style={{maxWidth:700}}>
         <FinanceiroForm initial={editFin} onSave={saveFin} onCancel={()=>{setShowFinForm(false);setEditFin(null);}} cadastros={cadastros} saving={saving}/>
