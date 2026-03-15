@@ -585,6 +585,9 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
   const startEditL = l => { setEditLId(l.id); setEditLBuf({...l}); };
   const cancelEditL = () => { setEditLId(null); setEditLBuf(null); };
   const saveEditL = () => {
+    if(!editLBuf.codigo||!editLBuf.codigo.trim()){
+      alert("Informe o Código do Lote antes de salvar.");return;
+    }
     setLotes(ls=>ls.map(l=>l.id===editLId?{...editLBuf,id:editLId}:l));
     setEditLId(null); setEditLBuf(null);
   };
@@ -610,13 +613,18 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
 
   // ── Container CRUD ──
   const saveCntr = () => {
-    if(!newCntr.numero.trim())return;
+    if(!newCntr.numero.trim()){
+      alert("Informe a Identificação do container antes de salvar.");return;
+    }
     setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:[...l.containers,newCntr]}:l));
     setNewCntr(emptyCntr()); setAddCntr(false);
   };
   const startEditC = c => { setEditCId(c.id); setEditCBuf({...c}); };
   const cancelEditC = () => { setEditCId(null); setEditCBuf(null); };
   const saveEditC = () => {
+    if(!editCBuf.numero||!editCBuf.numero.trim()){
+      alert("Informe a Identificação do container antes de salvar.");return;
+    }
     setLotes(ls=>ls.map(l=>l.id!==selId?l:{...l,containers:l.containers.map(c=>c.id===editCId?editCBuf:c)}));
     setEditCId(null); setEditCBuf(null);
   };
