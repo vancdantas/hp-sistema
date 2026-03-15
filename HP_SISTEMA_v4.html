@@ -4,12 +4,12 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>HP Sistema – Logística Mineral</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -76,7 +76,8 @@ const FIREBASE_CONFIG = {
 };
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const FB_READY = FIREBASE_CONFIG.apiKey !== "COLE_AQUI";
+const FB_READY = FIREBASE_CONFIG.apiKey !== "COLE_AQUI" && typeof firebase !== "undefined";
+const FB_LIB_MISSING = FIREBASE_CONFIG.apiKey !== "COLE_AQUI" && typeof firebase === "undefined";
 let db = null;
 if (FB_READY) {
   try {
@@ -530,77 +531,242 @@ const FilterBar = ({filters,setFilters,onClear,count,total}) => (
   </div>
 );
 
-// ── FORM CADASTRO ─────────────────────────────────────────────────────
-const emptyCad = () => ({operacao:"",cliente:"",lote:"",cntr:"",data:today(),cu_pct:"",cert_cu_pct:"",vl_ponto_cu:"",au_gr:"",cert_au:"",ponto_au:"",peso:"",valor_cu:"",valor_au:"",certificadora:"ASA",umidade:"",invoice:"",peso_seco:""});
+// ── FORM CADASTRO — MASTER DETAIL ─────────────────────────────────────
+const emptyLote = () => ({
+  id:"l"+Date.now()+Math.random().toString(36).slice(2,7),
+  codigo:"",cu_pct:"",cert_cu_pct:"",vl_ponto_cu:"",valor_cu:"",
+  au_gr:"",cert_au:"",ponto_au:"",valor_au:"",
+  peso:"",umidade:"",peso_seco:"",certificadora:"ASA",invoice:"",
+  custo_total:0,containers:[]
+});
+const emptyCntr = () => ({
+  id:"c"+Date.now()+Math.random().toString(36).slice(2,7),
+  numero:"",peso_bruto:"",peso_liquido:"",obs:""
+});
+
 const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving}) => {
-  const [f,setF] = useState(initial||emptyCad());
-  const s = (k,v) => setF(p=>({...p,[k]:v}));
-  const custo = (parseFloat(f.valor_cu)||0)+(parseFloat(f.valor_au)||0);
+  const [op,setOp]   = useState(initial ? {operacao:initial.operacao||"",cliente:initial.cliente||"",data:initial.data||today()} : {operacao:"",cliente:"",data:today()});
+  const [lotes,setLotes] = useState(initial?.lotes?.length ? initial.lotes : []);
+  const [selId,setSelId] = useState(null);
+  const [loteTab,setLoteTab] = useState("dados");
+  const [addCntr,setAddCntr] = useState(false);
+  const [newCntr,setNewCntr] = useState(emptyCntr());
+
+  const selLote = lotes.find(l=>l.id===selId)||null;
+
+  const upLote = (k,v) => setLotes(ls=>ls.map(l=>{
+    if(l.id!==selId) return l;
+    const u={...l,[k]:v};
+    if(k==="valor_cu"||k==="valor_au"){
+      u.custo_total=(k==="valor_cu"?parseFloat(v)||0:parseFloat(l.valor_cu)||0)+(k==="valor_au"?parseFloat(v)||0:parseFloat(l.valor_au)||0);
+    }
+    if(k==="peso"||k==="umidade"){
+      const p=k==="peso"?parseFloat(v)||0:parseFloat(l.peso)||0;
+      const h=k==="umidade"?parseFloat(v)||0:parseFloat(l.umidade)||0;
+      if(p>0) u.peso_seco=(p*(1-h/100)).toFixed(3);
+    }
+    return u;
+  }));
+
+  const addLote = () => { const l=emptyLote(); setLotes(ls=>[...ls,l]); setSelId(l.id); setLoteTab("dados"); };
+  const delLote = id => { if(!confirm("Excluir este lote?"))return; setLotes(ls=>ls.filter(l=>l.id!==id)); if(selId===id)setSelId(lotes.find(l=>l.id!==id)?.id||null); };
+  const saveCntr = () => { if(!newCntr.numero.trim())return; setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:[...l.containers,newCntr]}:l)); setNewCntr(emptyCntr()); setAddCntr(false); };
+  const delCntr  = cid => setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:l.containers.filter(c=>c.id!==cid)}:l));
+
+  const totalOp = lotes.reduce((a,l)=>a+(parseFloat(l.custo_total)||0),0);
+
+  const handleSave = () => {
+    if(!op.operacao.trim()){alert("Informe o nome da operação.");return;}
+    onSave({...op, lotes, custo_total:totalOp});
+  };
+
   return (
-    <div style={{padding:28}}>
-      <div style={{marginBottom:20}}>
-        <div className="section-title">{initial?.id?"EDITAR OPERAÇÃO":"NOVA OPERAÇÃO"}</div>
-        {initial?.id&&<div style={{fontSize:11,color:"#7A8299",marginTop:2}}>ID: {initial.id}</div>}
-      </div>
-      <div className="divider"/>
-      <div style={{marginBottom:12}}>
-        <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:10}}>IDENTIFICAÇÃO</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:"12px 16px",marginBottom:12}}>
-          <FG label="Operação"><input value={f.operacao} onChange={e=>s("operacao",e.target.value)} placeholder="Ex: LOTE 2 MING"/></FG>
-          <FG label="Cliente"><input value={f.cliente} onChange={e=>s("cliente",e.target.value)} placeholder="Nome do cliente"/></FG>
-        </div>
-        <Grid cols={3}>
-          <FG label="Lote"><input value={f.lote} onChange={e=>s("lote",e.target.value)} placeholder="Ex: GR008"/></FG>
-          <FG label="CNTR"><input type="number" step="0.01" value={f.cntr} onChange={e=>s("cntr",e.target.value)} placeholder="0.00"/></FG>
-          <FG label="Data"><input type="date" value={f.data} onChange={e=>s("data",e.target.value)}/></FG>
-        </Grid>
-      </div>
-      <div className="divider"/>
-      <div style={{marginBottom:12}}>
-        <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:10}}>COBRE (CU)</div>
-        <Grid cols={4}>
-          <FG label="CU %"><input type="number" step="0.0001" value={f.cu_pct} onChange={e=>s("cu_pct",e.target.value)} placeholder="0.0000"/></FG>
-          <FG label="CERT – CU %"><input type="number" step="0.0001" value={f.cert_cu_pct} onChange={e=>s("cert_cu_pct",e.target.value)} placeholder="0.0000"/></FG>
-          <FG label="Valor Ponto CU (R$)"><input type="number" step="0.01" value={f.vl_ponto_cu} onChange={e=>s("vl_ponto_cu",e.target.value)} placeholder="0.00"/></FG>
-          <FG label="Valor CU (R$)"><input type="number" step="0.01" value={f.valor_cu} onChange={e=>s("valor_cu",e.target.value)} placeholder="0.00"/></FG>
-        </Grid>
-      </div>
-      <div className="divider"/>
-      <div style={{marginBottom:12}}>
-        <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:10}}>OURO (AU)</div>
-        <Grid cols={4}>
-          <FG label="AU – GR"><input type="number" step="0.0001" value={f.au_gr} onChange={e=>s("au_gr",e.target.value)} placeholder="0.0000"/></FG>
-          <FG label="CERT – AU"><input type="number" step="0.0001" value={f.cert_au} onChange={e=>s("cert_au",e.target.value)} placeholder="0.0000"/></FG>
-          <FG label="Ponto AU – GR"><input type="number" step="0.01" value={f.ponto_au} onChange={e=>s("ponto_au",e.target.value)} placeholder="0.00"/></FG>
-          <FG label="Valor AU (R$)"><input type="number" step="0.01" value={f.valor_au} onChange={e=>s("valor_au",e.target.value)} placeholder="0.00"/></FG>
-        </Grid>
-      </div>
-      <div className="divider"/>
-      <div style={{marginBottom:12}}>
-        <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:10}}>PESO & CERTIFICAÇÃO</div>
-        <Grid cols={4}>
-          <FG label="Peso (kg)"><input type="number" step="0.001" value={f.peso} onChange={e=>s("peso",e.target.value)} placeholder="0.000"/></FG>
-          <FG label="Umidade %"><input type="number" step="0.01" value={f.umidade} onChange={e=>s("umidade",e.target.value)} placeholder="0.00"/></FG>
-          <FG label="Peso Seco (kg)"><input type="number" step="0.001" value={f.peso_seco} onChange={e=>s("peso_seco",e.target.value)} placeholder="0.000"/></FG>
-          <FG label="Invoice"><input type="number" value={f.invoice} onChange={e=>s("invoice",e.target.value)} placeholder="Número"/></FG>
-          <FG label={<span style={{display:"flex",alignItems:"center",gap:6}}>Certificadora<button onClick={onManageCerts} style={{background:"none",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:10}}>+ Gerenciar</button></span>}>
-            <select value={f.certificadora} onChange={e=>s("certificadora",e.target.value)}>{certifiers.map(c=><option key={c}>{c}</option>)}</select>
-          </FG>
-        </Grid>
-      </div>
-      <div className="divider"/>
-      <div style={{background:"#1E2330",border:"1px solid #2E3650",borderRadius:6,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      {/* TOP BAR */}
+      <div style={{padding:"16px 22px",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
         <div>
-          <div style={{fontSize:10,letterSpacing:".1em",textTransform:"uppercase",color:"#7A8299"}}>Custo Total Calculado</div>
-          <div style={{fontSize:24,fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,color:"#C9A84C"}}>{fmtCur(custo)}</div>
+          <div className="section-title" style={{fontSize:18}}>{initial?.id?"EDITAR OPERAÇÃO":"NOVA OPERAÇÃO"}</div>
+          {initial?.id&&<div style={{fontSize:11,color:"#7A8299",marginTop:2}}>ID: {initial.id}</div>}
         </div>
-        <div style={{fontSize:11,color:"#7A8299"}}>CU + AU</div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancelar</button>
+          <button className="btn btn-gold btn-sm" onClick={handleSave} disabled={saving}>{saving?"Salvando...":"Finalizar Operação"}</button>
+        </div>
       </div>
-      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-        <button className="btn btn-outline" onClick={onCancel}>Cancelar</button>
-        <button className="btn btn-gold" onClick={()=>onSave({...f,custo_total:custo})} disabled={saving}>
-          {saving?"Salvando...":(initial?.id?"Salvar Alterações":"Registrar Operação")}
-        </button>
+
+      {/* CABEÇALHO */}
+      <div style={{padding:"14px 22px",borderBottom:"1px solid #2E3650",background:"rgba(30,35,48,.5)",flexShrink:0}}>
+        <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>CABEÇALHO DA OPERAÇÃO</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 160px",gap:"10px 14px"}}>
+          <FG label="Operação"><input value={op.operacao} onChange={e=>setOp(p=>({...p,operacao:e.target.value}))} placeholder="Ex: LOTE 1 MING"/></FG>
+          <FG label="Cliente"><input value={op.cliente} onChange={e=>setOp(p=>({...p,cliente:e.target.value}))} placeholder="Nome do cliente"/></FG>
+          <FG label="Data"><input type="date" value={op.data} onChange={e=>setOp(p=>({...p,data:e.target.value}))}/></FG>
+        </div>
+      </div>
+
+      {/* BODY */}
+      <div style={{display:"flex",flex:1,minHeight:0,overflow:"hidden"}}>
+
+        {/* ESQUERDA: LISTA DE LOTES */}
+        <div style={{width:250,borderRight:"1px solid #2E3650",display:"flex",flexDirection:"column",flexShrink:0}}>
+          <div style={{padding:"10px 14px",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:".1em",color:"#C9A84C",textTransform:"uppercase"}}>Lotes <span style={{color:"#7A8299",fontWeight:400}}>({lotes.length})</span></div>
+            <button className="btn btn-gold btn-sm" style={{padding:"4px 10px",fontSize:11}} onClick={addLote}>+ Novo</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto"}}>
+            {lotes.length===0&&<div style={{padding:"24px 14px",textAlign:"center",color:"#7A8299",fontSize:12,lineHeight:1.7}}>Nenhum lote.<br/>Clique em + Novo.</div>}
+            {lotes.map(l=>(
+              <div key={l.id} onClick={()=>{setSelId(l.id);setLoteTab("dados");}}
+                style={{padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #2E3650",
+                  background:l.id===selId?"rgba(201,168,76,.08)":"transparent",
+                  borderLeft:l.id===selId?"3px solid #C9A84C":"3px solid transparent",transition:"all .12s"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:l.id===selId?"#C9A84C":"#E8ECF4",fontFamily:"'IBM Plex Mono',monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {l.codigo||<span style={{color:"#7A8299",fontStyle:"italic",fontWeight:400}}>Sem código</span>}
+                    </div>
+                    <div style={{fontSize:10,color:"#7A8299",marginTop:2}}>{l.containers.length} container(s)</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+                    <div style={{fontSize:11,color:"#2ECC71",fontFamily:"'IBM Plex Mono',monospace"}}>{l.custo_total>0?fmtCur(l.custo_total):"—"}</div>
+                    <button className="btn btn-danger" style={{padding:"1px 7px",fontSize:10,marginTop:3}}
+                      onClick={e=>{e.stopPropagation();delLote(l.id);}}>✕</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{padding:"10px 14px",borderTop:"1px solid #2E3650",background:"#1E2330",flexShrink:0}}>
+            <div style={{fontSize:10,letterSpacing:".08em",color:"#7A8299",textTransform:"uppercase",marginBottom:2}}>Custo total da operação</div>
+            <div style={{fontSize:16,fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,color:"#C9A84C"}}>{fmtCur(totalOp)}</div>
+          </div>
+        </div>
+
+        {/* DIREITA: DETALHE DO LOTE */}
+        <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column"}}>
+          {!selLote ? (
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,color:"#7A8299"}}>
+              <div style={{fontSize:40,opacity:.2}}>◈</div>
+              <div style={{fontSize:13}}>Selecione um lote ou crie um novo</div>
+              <button className="btn btn-gold btn-sm" onClick={addLote}>+ Novo Lote</button>
+            </div>
+          ) : (
+            <>
+              <div style={{borderBottom:"1px solid #2E3650",display:"flex",padding:"0 20px",flexShrink:0,background:"rgba(30,35,48,.4)"}}>
+                {[["dados","DADOS DO LOTE"],["containers","CONTAINERS"+(selLote.containers.length>0?" ("+selLote.containers.length+")":"")]].map(([k,label])=>(
+                  <button key={k} onClick={()=>setLoteTab(k)}
+                    style={{background:"transparent",border:"none",borderBottom:loteTab===k?"2px solid #C9A84C":"2px solid transparent",
+                      color:loteTab===k?"#C9A84C":"#7A8299",padding:"10px 18px",fontSize:11,fontWeight:700,
+                      letterSpacing:".08em",cursor:"pointer"}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {loteTab==="dados"&&(
+                <div style={{padding:"18px 22px"}}>
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>IDENTIFICAÇÃO DO LOTE</div>
+                    <Grid cols={2} style={{maxWidth:480}}>
+                      <FG label="Código do Lote"><input value={selLote.codigo} onChange={e=>upLote("codigo",e.target.value)} placeholder="Ex: GR008"/></FG>
+                      <FG label="Invoice"><input value={selLote.invoice} onChange={e=>upLote("invoice",e.target.value)} placeholder="Número"/></FG>
+                    </Grid>
+                  </div>
+                  <div className="divider"/>
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>COBRE (CU)</div>
+                    <Grid cols={4}>
+                      <FG label="CU %"><input type="number" step="0.0001" value={selLote.cu_pct} onChange={e=>upLote("cu_pct",e.target.value)} placeholder="0.0000"/></FG>
+                      <FG label="CERT – CU %"><input type="number" step="0.0001" value={selLote.cert_cu_pct} onChange={e=>upLote("cert_cu_pct",e.target.value)} placeholder="0.0000"/></FG>
+                      <FG label="Valor Ponto CU"><input type="number" step="0.01" value={selLote.vl_ponto_cu} onChange={e=>upLote("vl_ponto_cu",e.target.value)} placeholder="0.00"/></FG>
+                      <FG label="Valor CU (R$)"><input type="number" step="0.01" value={selLote.valor_cu} onChange={e=>upLote("valor_cu",e.target.value)} placeholder="0.00"/></FG>
+                    </Grid>
+                  </div>
+                  <div className="divider"/>
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>OURO (AU)</div>
+                    <Grid cols={4}>
+                      <FG label="AU – GR"><input type="number" step="0.0001" value={selLote.au_gr} onChange={e=>upLote("au_gr",e.target.value)} placeholder="0.0000"/></FG>
+                      <FG label="CERT – AU"><input type="number" step="0.0001" value={selLote.cert_au} onChange={e=>upLote("cert_au",e.target.value)} placeholder="0.0000"/></FG>
+                      <FG label="Ponto AU – GR"><input type="number" step="0.01" value={selLote.ponto_au} onChange={e=>upLote("ponto_au",e.target.value)} placeholder="0.00"/></FG>
+                      <FG label="Valor AU (R$)"><input type="number" step="0.01" value={selLote.valor_au} onChange={e=>upLote("valor_au",e.target.value)} placeholder="0.00"/></FG>
+                    </Grid>
+                  </div>
+                  <div className="divider"/>
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase",marginBottom:8}}>PESO & CERTIFICAÇÃO</div>
+                    <Grid cols={4}>
+                      <FG label="Peso (kg)"><input type="number" step="0.001" value={selLote.peso} onChange={e=>upLote("peso",e.target.value)} placeholder="0.000"/></FG>
+                      <FG label="Umidade %"><input type="number" step="0.01" value={selLote.umidade} onChange={e=>upLote("umidade",e.target.value)} placeholder="0.00"/></FG>
+                      <FG label="Peso Seco (kg)"><input type="number" step="0.001" value={selLote.peso_seco} onChange={e=>upLote("peso_seco",e.target.value)} placeholder="Auto"/></FG>
+                      <FG label={<span style={{display:"flex",alignItems:"center",gap:6}}>Certificadora<button onClick={onManageCerts} style={{background:"none",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:10}}>+ Gerenciar</button></span>}>
+                        <select value={selLote.certificadora} onChange={e=>upLote("certificadora",e.target.value)}>{certifiers.map(c=><option key={c}>{c}</option>)}</select>
+                      </FG>
+                    </Grid>
+                  </div>
+                  <div style={{background:"#1E2330",border:"1px solid #2E3650",borderRadius:6,padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div>
+                      <div style={{fontSize:10,letterSpacing:".1em",textTransform:"uppercase",color:"#7A8299"}}>Custo Total do Lote</div>
+                      <div style={{fontSize:22,fontFamily:"'IBM Plex Mono',monospace",fontWeight:700,color:"#C9A84C"}}>{fmtCur(selLote.custo_total)}</div>
+                    </div>
+                    <div style={{fontSize:11,color:"#7A8299"}}>CU + AU</div>
+                  </div>
+                </div>
+              )}
+
+              {loteTab==="containers"&&(
+                <div style={{padding:"18px 22px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:".12em",color:"#7A8299",textTransform:"uppercase"}}>CONTAINERS DO LOTE</div>
+                    <button className="btn btn-gold btn-sm" onClick={()=>{setAddCntr(true);setNewCntr(emptyCntr());}}>+ Adicionar Container</button>
+                  </div>
+                  {addCntr&&(
+                    <div style={{background:"#1E2330",border:"1px solid #C9A84C",borderRadius:6,padding:14,marginBottom:14}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#C9A84C",letterSpacing:".1em",marginBottom:10}}>NOVO CONTAINER</div>
+                      <Grid cols={4}>
+                        <FG label="Identificação"><input value={newCntr.numero} onChange={e=>setNewCntr(p=>({...p,numero:e.target.value}))} placeholder="Ex: CONT001" autoFocus/></FG>
+                        <FG label="Peso Bruto (kg)"><input type="number" step="0.001" value={newCntr.peso_bruto} onChange={e=>setNewCntr(p=>({...p,peso_bruto:e.target.value}))} placeholder="0.000"/></FG>
+                        <FG label="Peso Líquido (kg)"><input type="number" step="0.001" value={newCntr.peso_liquido} onChange={e=>setNewCntr(p=>({...p,peso_liquido:e.target.value}))} placeholder="0.000"/></FG>
+                        <FG label="Observações"><input value={newCntr.obs} onChange={e=>setNewCntr(p=>({...p,obs:e.target.value}))} placeholder="Opcional"/></FG>
+                      </Grid>
+                      <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+                        <button className="btn btn-outline btn-sm" onClick={()=>setAddCntr(false)}>Cancelar</button>
+                        <button className="btn btn-gold btn-sm" onClick={saveCntr}>Salvar Container</button>
+                      </div>
+                    </div>
+                  )}
+                  {selLote.containers.length===0&&!addCntr&&(
+                    <div style={{textAlign:"center",color:"#7A8299",padding:"32px 0",fontSize:12}}>Nenhum container cadastrado. Clique em "+ Adicionar Container".</div>
+                  )}
+                  {selLote.containers.length>0&&(
+                    <>
+                      <table>
+                        <thead><tr><th>#</th><th>Identificação</th><th>Peso Bruto (kg)</th><th>Peso Líquido (kg)</th><th>Observações</th><th style={{textAlign:"center"}}>Ações</th></tr></thead>
+                        <tbody>
+                          {selLote.containers.map((c,i)=>(
+                            <tr key={c.id}>
+                              <td className="text-muted">{i+1}</td>
+                              <td className="text-gold">{c.numero}</td>
+                              <td>{fmt(c.peso_bruto)}</td>
+                              <td>{fmt(c.peso_liquido)}</td>
+                              <td style={{color:"#7A8299"}}>{c.obs||"—"}</td>
+                              <td style={{textAlign:"center"}}><button className="btn btn-danger" onClick={()=>delCntr(c.id)}>✕</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div style={{marginTop:10,display:"flex",gap:20,fontSize:11,color:"#7A8299"}}>
+                        <span>Total: <strong style={{color:"#E8ECF4"}}>{selLote.containers.length}</strong></span>
+                        <span>Peso bruto: <strong style={{color:"#C9A84C"}}>{fmt(selLote.containers.reduce((a,c)=>a+(parseFloat(c.peso_bruto)||0),0))} kg</strong></span>
+                        <span>Peso líquido: <strong style={{color:"#C9A84C"}}>{fmt(selLote.containers.reduce((a,c)=>a+(parseFloat(c.peso_liquido)||0),0))} kg</strong></span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -612,7 +778,7 @@ const FinanceiroForm = ({initial,onSave,onCancel,cadastros,saving}) => {
   const [f,setF] = useState(initial||emptyFin());
   const s = (k,v) => setF(p=>({...p,[k]:v}));
   const clientes = [...new Set(cadastros.map(c=>c.cliente).filter(Boolean))];
-  const lotes    = [...new Set(cadastros.map(c=>c.lote).filter(Boolean))];
+  const lotes    = [...new Set(cadastros.flatMap(c=>c.lotes?.map(l=>l.codigo)||[c.lote]).filter(Boolean))];
   const ops      = [...new Set(cadastros.map(c=>c.operacao).filter(Boolean))];
   return (
     <div style={{padding:28}}>
@@ -736,7 +902,13 @@ function App() {
   const saveCad = async (d) => {
     setSaving(true);
     try {
-      const data = {...d, custo_total: (parseFloat(d.valor_cu)||0)+(parseFloat(d.valor_au)||0)};
+      const data = {
+        operacao: d.operacao||"",
+        cliente:  d.cliente||"",
+        data:     d.data||today(),
+        lotes:    d.lotes||[],
+        custo_total: d.custo_total||0
+      };
       if(editCad?.id) await FS.update("cadastros", editCad.id, data);
       else             await FS.add("cadastros", data);
       setShowCadForm(false); setEditCad(null);
@@ -789,19 +961,27 @@ function App() {
   const applyF = (list,f) => list.filter(r=>{
     if(f.operacao&&!(r.operacao||"").toLowerCase().includes(f.operacao.toLowerCase()))return false;
     if(f.cliente&&!(r.cliente||"").toLowerCase().includes(f.cliente.toLowerCase()))return false;
-    if(f.lote&&!(r.lote||"").toLowerCase().includes(f.lote.toLowerCase()))return false;
+    if(f.lote){
+      const q=f.lote.toLowerCase();
+      const match = r.lotes?.some(l=>(l.codigo||"").toLowerCase().includes(q)) || (r.lote||"").toLowerCase().includes(q);
+      if(!match)return false;
+    }
     if(f.data&&r.data!==f.data)return false;
     return true;
   });
   const filteredCad = applyF(cadastros, cadFilters);
   const filteredFin = applyF(financeiros, finFilters);
 
-  const filterOp = cadastros.filter(c=>{
-    if(relOpF.lote&&!c.lote.toLowerCase().includes(relOpF.lote.toLowerCase()))return false;
-    if(relOpF.operacao&&!c.operacao.toLowerCase().includes(relOpF.operacao.toLowerCase()))return false;
-    if(relOpF.data_ini&&c.data<relOpF.data_ini)return false;
-    if(relOpF.data_fim&&c.data>relOpF.data_fim)return false;
-    return true;
+  const filterOp = [];
+  cadastros.forEach(c=>{
+    const lts = c.lotes&&c.lotes.length>0 ? c.lotes : [{codigo:c.lote||"",cu_pct:c.cu_pct,cert_cu_pct:c.cert_cu_pct,vl_ponto_cu:c.vl_ponto_cu,valor_cu:c.valor_cu,au_gr:c.au_gr,cert_au:c.cert_au,ponto_au:c.ponto_au,valor_au:c.valor_au,peso:c.peso,umidade:c.umidade,peso_seco:c.peso_seco,certificadora:c.certificadora,invoice:c.invoice,custo_total:c.custo_total,containers:[]}];
+    lts.forEach(l=>{
+      if(relOpF.lote&&!(l.codigo||"").toLowerCase().includes(relOpF.lote.toLowerCase()))return;
+      if(relOpF.operacao&&!c.operacao.toLowerCase().includes(relOpF.operacao.toLowerCase()))return;
+      if(relOpF.data_ini&&c.data<relOpF.data_ini)return;
+      if(relOpF.data_fim&&c.data>relOpF.data_fim)return;
+      filterOp.push({...l,operacao:c.operacao,cliente:c.cliente,data:c.data,_cadId:c.id});
+    });
   });
   const filterFin = financeiros.filter(f=>{
     if(relFinF.cliente&&!(f.cliente||"").toLowerCase().includes(relFinF.cliente.toLowerCase()))return false;
@@ -820,6 +1000,35 @@ function App() {
   const saldo      = totalRec;
 
   // ── RENDER GUARDS ─────────────────────────────────────────────────────
+  if(FB_LIB_MISSING) return (
+    <div className="login-screen">
+      <div className="login-card fade-in" style={{maxWidth:480}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <div style={{width:52,height:52,background:"linear-gradient(135deg,#C9A84C,#8B5E1A)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontFamily:"'Bebas Neue',sans-serif",color:"#0D0F14",margin:"0 auto 14px"}}>HP</div>
+          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:".1em",color:"#C9A84C"}}>HP SISTEMA</div>
+        </div>
+        <div style={{background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.4)",borderRadius:6,padding:"14px 16px",marginBottom:16}}>
+          <div style={{color:"#E74C3C",fontWeight:700,fontSize:12,marginBottom:6}}>⚠ Biblioteca Firebase não carregou</div>
+          <div style={{color:"#7A8299",fontSize:12,lineHeight:1.7}}>
+            Isso acontece quando o arquivo é aberto localmente. O sistema precisa ser acessado pelo link publicado no <strong style={{color:"#E8ECF4"}}>Vercel</strong>.
+          </div>
+        </div>
+        <div style={{background:"#1E2330",border:"1px solid #2E3650",borderRadius:6,padding:"12px 16px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#C9A84C",letterSpacing:".1em",marginBottom:8}}>COMO ACESSAR CORRETAMENTE</div>
+          {[
+            "Acesse vercel.com e entre no seu projeto",
+            "Clique no link de domínio do projeto (ex: hp-sistema.vercel.app)",
+            "Faça login normalmente pelo navegador"
+          ].map((t,i)=>(
+            <div key={i} style={{display:"flex",gap:10,marginBottom:6,alignItems:"flex-start"}}>
+              <span style={{minWidth:20,height:20,background:"#C9A84C",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#0D0F14",flexShrink:0}}>{i+1}</span>
+              <span style={{fontSize:12,color:"#E8ECF4",lineHeight:1.5}}>{t}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
   if(!FB_READY)    return <SetupScreen/>;
   if(!authChecked) return <LoadingScreen msg="Verificando conexão..."/>;
   if(!currentUser) return <LoginScreen onLogin={handleLogin}/>;
@@ -830,7 +1039,7 @@ function App() {
     <>
       {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
 
-      {showCadForm&&<div className="modal-overlay"><div className="modal fade-in">
+      {showCadForm&&<div className="modal-overlay"><div className="modal fade-in" style={{maxWidth:1100,height:"88vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <CadastroForm initial={editCad} onSave={saveCad} onCancel={()=>{setShowCadForm(false);setEditCad(null);}} certifiers={certifiers} onManageCerts={()=>setShowCertMgr(true)} saving={saving}/>
       </div></div>}
       {showFinForm&&<div className="modal-overlay"><div className="modal fade-in" style={{maxWidth:700}}>
@@ -863,10 +1072,10 @@ function App() {
                 <div className="section-title" style={{fontSize:16}}>ÚLTIMAS OPERAÇÕES</div>
                 <button className="btn btn-gold btn-sm" onClick={()=>{setTab("cadastro");setShowCadForm(true);}}>+ Nova</button>
               </div>
-              <table><thead><tr><th>Lote</th><th>Operação</th><th>Data</th><th>Custo Total</th></tr></thead>
+              <table><thead><tr><th>Operação</th><th>Cliente</th><th>Data</th><th>Lotes</th><th>Custo Total</th></tr></thead>
                 <tbody>
-                  {cadastros.slice(-8).reverse().map(c=><tr key={c.id}><td><span className="tag badge-gold">{c.lote}</span></td><td style={{color:"#7A8299"}}>{c.operacao}</td><td style={{color:"#7A8299"}}>{c.data}</td><td className="text-gold">{fmtCur(c.custo_total)}</td></tr>)}
-                  {cadastros.length===0&&<tr><td colSpan={4} style={{textAlign:"center",color:"#7A8299",padding:24}}>Nenhuma operação registrada</td></tr>}
+                  {cadastros.slice(-8).reverse().map(c=><tr key={c.id}><td><span className="tag badge-gold">{c.operacao}</span></td><td style={{color:"#7A8299"}}>{c.cliente}</td><td style={{color:"#7A8299"}}>{c.data}</td><td style={{textAlign:"center"}}><span className="tag badge-blue">{(c.lotes||[]).length}</span></td><td className="text-gold">{fmtCur(c.custo_total)}</td></tr>)}
+                  {cadastros.length===0&&<tr><td colSpan={5} style={{textAlign:"center",color:"#7A8299",padding:24}}>Nenhuma operação registrada</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -902,27 +1111,27 @@ function App() {
           <FilterBar filters={cadFilters} setFilters={setCadFilters} count={filteredCad.length} total={cadastros.length} onClear={()=>setCadFilters({operacao:"",cliente:"",lote:"",data:""})}/>
           <div style={{overflowX:"auto"}}>
             <table>
-              <thead><tr><th>#</th><th>Operação</th><th>Cliente</th><th>Lote</th><th>CNTR</th><th>Data</th><th>CU%</th><th>AU-GR</th><th>Peso kg</th><th>Peso Seco</th><th>Valor CU</th><th>Valor AU</th><th>Custo Total</th><th>Certif.</th><th>Invoice</th><th style={{textAlign:"center",minWidth:120}}>Ações</th></tr></thead>
+              <thead><tr><th>#</th><th>Operação</th><th>Cliente</th><th>Data</th><th style={{textAlign:"center"}}>Lotes</th><th style={{textAlign:"center"}}>Containers</th><th>Custo Total</th><th style={{textAlign:"center",minWidth:120}}>Ações</th></tr></thead>
               <tbody>
-                {filteredCad.map((c,i)=>(
-                  <tr key={c.id}>
-                    <td className="text-muted">{i+1}</td>
-                    <td><span className="tag badge-gold">{c.operacao}</span></td>
-                    <td>{c.cliente}</td><td className="text-gold">{c.lote}</td>
-                    <td className="text-muted">{fmt(c.cntr)}</td><td className="text-muted">{c.data}</td>
-                    <td>{fmtPct(c.cu_pct)}</td><td>{fmt(c.au_gr)}</td>
-                    <td>{fmt(c.peso)}</td><td>{fmt(c.peso_seco)}</td>
-                    <td className="text-gold">{fmtCur(c.valor_cu)}</td><td className="text-gold">{fmtCur(c.valor_au)}</td>
-                    <td style={{fontWeight:600,color:"#C9A84C"}}>{fmtCur(c.custo_total)}</td>
-                    <td><span className="tag badge-blue">{c.certificadora}</span></td>
-                    <td className="text-muted">{c.invoice}</td>
-                    <td style={{display:"flex",gap:6,justifyContent:"center",padding:"6px 8px"}}>
-                      <button className="btn btn-outline btn-sm" onClick={()=>{setEditCad(c);setShowCadForm(true);}}>✎ Editar</button>
-                      <button className="btn btn-danger" onClick={()=>delCad(c.id)}>✕</button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredCad.length===0&&<tr><td colSpan={16} style={{textAlign:"center",color:"#7A8299",padding:40}}>{cadastros.length===0?"Nenhuma operação cadastrada.":"Nenhum resultado para os filtros."}</td></tr>}
+                {filteredCad.map((c,i)=>{
+                  const totalCntrs = (c.lotes||[]).reduce((a,l)=>a+(l.containers?.length||0),0);
+                  return (
+                    <tr key={c.id}>
+                      <td className="text-muted">{i+1}</td>
+                      <td><span className="tag badge-gold">{c.operacao}</span></td>
+                      <td>{c.cliente}</td>
+                      <td className="text-muted">{c.data}</td>
+                      <td style={{textAlign:"center"}}><span className="tag badge-blue">{(c.lotes||[]).length}</span></td>
+                      <td style={{textAlign:"center"}}><span className="tag badge-green">{totalCntrs}</span></td>
+                      <td style={{fontWeight:600,color:"#C9A84C"}}>{fmtCur(c.custo_total)}</td>
+                      <td style={{display:"flex",gap:6,justifyContent:"center",padding:"6px 8px"}}>
+                        <button className="btn btn-outline btn-sm" onClick={()=>{setEditCad(c);setShowCadForm(true);}}>✎ Editar</button>
+                        <button className="btn btn-danger" onClick={()=>delCad(c.id)}>✕</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredCad.length===0&&<tr><td colSpan={8} style={{textAlign:"center",color:"#7A8299",padding:40}}>{cadastros.length===0?"Nenhuma operação cadastrada.":"Nenhum resultado para os filtros."}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -983,22 +1192,22 @@ function App() {
             </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
-            <StatCard label="Operações" value={filterOp.length} color="#C9A84C"/>
-            <StatCard label="Total CU" value={fmtCur(filterOp.reduce((a,c)=>a+(parseFloat(c.valor_cu)||0),0))} color="#C9A84C"/>
-            <StatCard label="Total AU" value={fmtCur(filterOp.reduce((a,c)=>a+(parseFloat(c.valor_au)||0),0))} color="#C9A84C"/>
-            <StatCard label="Total Geral" value={fmtCur(filterOp.reduce((a,c)=>a+(parseFloat(c.custo_total)||0),0))} color="#2ECC71"/>
+            <StatCard label="Lotes" value={filterOp.length} color="#C9A84C"/>
+            <StatCard label="Total CU" value={fmtCur(filterOp.reduce((a,l)=>a+(parseFloat(l.valor_cu)||0),0))} color="#C9A84C"/>
+            <StatCard label="Total AU" value={fmtCur(filterOp.reduce((a,l)=>a+(parseFloat(l.valor_au)||0),0))} color="#C9A84C"/>
+            <StatCard label="Total Geral" value={fmtCur(filterOp.reduce((a,l)=>a+(parseFloat(l.custo_total)||0),0))} color="#2ECC71"/>
           </div>
           <div style={{overflowX:"auto"}}>
             <table>
-              <thead><tr><th>Data</th><th>Lote</th><th>Operação</th><th>Cliente</th><th>CNTR</th><th>CU%</th><th>AU-GR</th><th>Peso (kg)</th><th>Peso Seco</th><th>Valor CU</th><th>Valor AU</th><th>Custo Total</th><th>Certif.</th></tr></thead>
+              <thead><tr><th>Data</th><th>Operação</th><th>Cliente</th><th>Lote</th><th>Containers</th><th>CU%</th><th>AU-GR</th><th>Peso (kg)</th><th>Peso Seco</th><th>Valor CU</th><th>Valor AU</th><th>Custo Total</th><th>Certif.</th></tr></thead>
               <tbody>
-                {filterOp.map(c=><tr key={c.id}><td>{c.data}</td><td className="text-gold">{c.lote}</td><td>{c.operacao}</td><td>{c.cliente}</td><td>{fmt(c.cntr)}</td><td>{fmtPct(c.cu_pct)}</td><td>{fmt(c.au_gr)}</td><td>{fmt(c.peso)}</td><td>{fmt(c.peso_seco)}</td><td>{fmtCur(c.valor_cu)}</td><td>{fmtCur(c.valor_au)}</td><td style={{fontWeight:600,color:"#C9A84C"}}>{fmtCur(c.custo_total)}</td><td>{c.certificadora}</td></tr>)}
+                {filterOp.map((l,i)=><tr key={i}><td>{l.data}</td><td>{l.operacao}</td><td>{l.cliente}</td><td className="text-gold">{l.codigo||"—"}</td><td style={{textAlign:"center"}}><span className="tag badge-blue">{l.containers?.length||0}</span></td><td>{fmtPct(l.cu_pct)}</td><td>{fmt(l.au_gr)}</td><td>{fmt(l.peso)}</td><td>{fmt(l.peso_seco)}</td><td>{fmtCur(l.valor_cu)}</td><td>{fmtCur(l.valor_au)}</td><td style={{fontWeight:600,color:"#C9A84C"}}>{fmtCur(l.custo_total)}</td><td>{l.certificadora}</td></tr>)}
                 {filterOp.length===0&&<tr><td colSpan={13} style={{textAlign:"center",color:"#7A8299",padding:32}}>Nenhum resultado.</td></tr>}
                 {filterOp.length>0&&<tr style={{background:"#1E2330",borderTop:"2px solid #C9A84C"}}>
                   <td colSpan={9} style={{fontWeight:700,color:"#7A8299",fontSize:11}}>TOTAIS</td>
-                  <td style={{fontWeight:700,color:"#C9A84C"}}>{fmtCur(filterOp.reduce((a,c)=>a+(parseFloat(c.valor_cu)||0),0))}</td>
-                  <td style={{fontWeight:700,color:"#C9A84C"}}>{fmtCur(filterOp.reduce((a,c)=>a+(parseFloat(c.valor_au)||0),0))}</td>
-                  <td style={{fontWeight:700,color:"#C9A84C"}}>{fmtCur(filterOp.reduce((a,c)=>a+(parseFloat(c.custo_total)||0),0))}</td>
+                  <td style={{fontWeight:700,color:"#C9A84C"}}>{fmtCur(filterOp.reduce((a,l)=>a+(parseFloat(l.valor_cu)||0),0))}</td>
+                  <td style={{fontWeight:700,color:"#C9A84C"}}>{fmtCur(filterOp.reduce((a,l)=>a+(parseFloat(l.valor_au)||0),0))}</td>
+                  <td style={{fontWeight:700,color:"#C9A84C"}}>{fmtCur(filterOp.reduce((a,l)=>a+(parseFloat(l.custo_total)||0),0))}</td>
                   <td></td>
                 </tr>}
               </tbody>
