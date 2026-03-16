@@ -215,7 +215,7 @@ const Toast = ({msg,type,onDone}) => {
 };
 
 // ── NAV ───────────────────────────────────────────────────────────────
-const Nav = ({active,setActive,currentUser,onLogout,onManageUsers}) => {
+const Nav = ({active,setActive,currentUser,onLogout,onManageUsers,onBackup}) => {
   const tabs = tabsForPerfil(currentUser.perfil);
   return (
   <nav style={{background:"#161A23",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",padding:"0 24px",position:"sticky",top:0,zIndex:100}} className="no-print">
@@ -237,6 +237,7 @@ const Nav = ({active,setActive,currentUser,onLogout,onManageUsers}) => {
         <div style={{marginTop:2}}><span className={perfilBadge(currentUser.perfil)}>{perfilLabel(currentUser.perfil)}</span></div>
       </div>
       {currentUser.perfil==="admin"&&<button className="btn btn-outline btn-sm" onClick={onManageUsers} style={{fontSize:11}}>👥 Usuários</button>}
+      {currentUser.perfil==="admin"&&<button className="btn btn-outline btn-sm" onClick={onBackup} style={{fontSize:11,borderColor:"#2ECC71",color:"#2ECC71"}}>⬇ Backup</button>}
       <button className="btn btn-outline btn-sm" onClick={onLogout} style={{fontSize:11,borderColor:"#E74C3C",color:"#E74C3C"}}>Sair</button>
     </div>
   </nav>
@@ -366,6 +367,202 @@ const UserManager = ({onClose,currentUser,showToast}) => {
           ))}
         </div>
         <div style={{marginTop:20,textAlign:"right"}}><button className="btn btn-gold" onClick={onClose}>Fechar</button></div>
+      </div>
+    </div>
+  );
+};
+
+// ── BACKUP MODAL ──────────────────────────────────────────────────────
+const BackupModal = ({onClose,showToast}) => {
+  const [loading,setLoading] = useState(false);
+  const [status,setStatus]   = useState("");
+  const [counts,setCounts]   = useState(null);
+
+  useEffect(()=>{
+    const load = async ()=>{
+      try {
+        const [cads,fins,users,cfgDoc] = await Promise.all([
+          db.collection("cadastros").get(),
+          db.collection("financeiros").get(),
+          db.collection("users").get(),
+          db.collection("config").doc("app").get()
+        ]);
+        setCounts({
+          cadastros: cads.size,
+          financeiros: fins.size,
+          users: users.size,
+          config: cfgDoc.exists ? 1 : 0
+        });
+      } catch(e){ setStatus("Erro ao carregar contagens: "+e.message); }
+    };
+    load();
+  },[]);
+
+  const fetchAll = async () => {
+    const [cads,fins,users,cfgDoc] = await Promise.all([
+      db.collection("cadastros").get(),
+      db.collection("financeiros").get(),
+      db.collection("users").get(),
+      db.collection("config").doc("app").get()
+    ]);
+    return {
+      cadastros:   cads.docs.map(d=>({id:d.id,...d.data()})),
+      financeiros: fins.docs.map(d=>({id:d.id,...d.data()})),
+      users:       users.docs.map(d=>({id:d.id,...d.data(),pwd:"***"})),
+      config:      cfgDoc.exists ? {id:"app",...cfgDoc.data()} : {}
+    };
+  };
+
+  const backupJSON = async () => {
+    setLoading(true); setStatus("Coletando dados...");
+    try {
+      const data = await fetchAll();
+      const json = JSON.stringify({
+        _backup_at: new Date().toISOString(),
+        _version: "HP_SISTEMA_v4",
+        ...data
+      }, null, 2);
+      const blob = new Blob([json],{type:"application/json"});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url;
+      a.download = `hp_sistema_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus("✓ Backup JSON gerado com sucesso!");
+      showToast("Backup JSON baixado!");
+    } catch(e){ setStatus("Erro: "+e.message); }
+    setLoading(false);
+  };
+
+  const backupXLSX = async () => {
+    setLoading(true); setStatus("Coletando dados...");
+    try {
+      const data = await fetchAll();
+      const wb = XLSX.utils.book_new();
+
+      // Aba Operações (flatten lotes)
+      const cadRows = [];
+      data.cadastros.forEach(c=>{
+        const lotes = c.lotes&&c.lotes.length>0 ? c.lotes : [{}];
+        lotes.forEach(l=>{
+          const cntrs = l.containers&&l.containers.length>0 ? l.containers : [{}];
+          cntrs.forEach(cn=>{
+            cadRows.push({
+              "ID Operação": c.id_operacao||c.id,
+              "Operação":    c.operacao||"",
+              "Cliente":     c.cliente||"",
+              "Data Op.":    c.data||"",
+              "Incluído por":c.usuario_inclusao||"",
+              "Lote":        l.codigo||"",
+              "Data Lote":   l.data_lote||"",
+              "CU%":         l.cu_pct||"",
+              "AU-GR":       l.au_gr||"",
+              "Peso (kg)":   l.peso||"",
+              "Peso Seco":   l.peso_seco||"",
+              "Umidade%":    l.umidade||"",
+              "Valor CU":    l.valor_cu||"",
+              "Valor AU":    l.valor_au||"",
+              "Custo Lote":  l.custo_total||"",
+              "Certificadora":l.certificadora||"",
+              "Container":   cn.numero||"",
+              "Gross Weight":cn.peso_bruto||"",
+              "Net Weight":  cn.peso_liquido||"",
+              "Obs Container":cn.obs||"",
+              "Usuário Container":cn.usuario_inclusao||""
+            });
+          });
+        });
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cadRows), "Operações");
+
+      // Aba Financeiros
+      const finRows = data.financeiros.map(f=>({
+        "Data":        f.data||"",
+        "Cliente":     f.cliente||"",
+        "Operação":    f.operacao||"",
+        "Lote":        f.lote||"",
+        "Valor (R$)":  f.valor||"",
+        "Forma Pgto":  f.forma_pgto||"",
+        "Observações": f.obs||"",
+        "Incluído por":f.usuario_inclusao||""
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(finRows.length?finRows:[{}]), "Financeiros");
+
+      // Aba Usuários (sem senha)
+      const userRows = data.users.map(u=>({
+        "Nome":   u.nome||"",
+        "Login":  u.login||"",
+        "Perfil": u.perfil||""
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(userRows.length?userRows:[{}]), "Usuários");
+
+      const fname = `hp_sistema_backup_${new Date().toISOString().slice(0,10)}.xlsx`;
+      XLSX.writeFile(wb, fname);
+      setStatus("✓ Backup Excel gerado com sucesso!");
+      showToast("Backup Excel baixado!");
+    } catch(e){ setStatus("Erro: "+e.message); }
+    setLoading(false);
+  };
+
+  const fmtCount = n => n===null?"...":n;
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal modal-sm slide-in" style={{padding:28,maxWidth:520}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+          <div className="section-title" style={{fontSize:18}}>BACKUP DO SISTEMA</div>
+          <button className="btn btn-outline btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {/* Contagem de registros */}
+        <div style={{background:"#1E2330",border:"1px solid #2E3650",borderRadius:6,padding:"14px 16px",marginBottom:20}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#C9A84C",letterSpacing:".1em",marginBottom:10}}>DADOS QUE SERÃO INCLUÍDOS</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 16px"}}>
+            {[
+              ["Operações",    counts?.cadastros],
+              ["Recebimentos", counts?.financeiros],
+              ["Usuários",     counts?.users],
+              ["Configurações",counts?.config]
+            ].map(([label,n])=>(
+              <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#161A23",borderRadius:4,padding:"6px 12px"}}>
+                <span style={{fontSize:12,color:"#7A8299"}}>{label}</span>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13,color:"#C9A84C",fontWeight:600}}>{fmtCount(n)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Botões */}
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+          <button className="btn btn-gold" onClick={backupJSON} disabled={loading} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+            {loading?<span className="spinner" style={{width:14,height:14,borderWidth:2}}/>:"⬇"}
+            Baixar Backup JSON
+          </button>
+          <button className="btn btn-green" onClick={backupXLSX} disabled={loading} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+            {loading?<span className="spinner" style={{width:14,height:14,borderWidth:2}}/>:"⬇"}
+            Baixar Backup Excel (.xlsx)
+          </button>
+        </div>
+
+        {status&&(
+          <div style={{background: status.startsWith("✓")?"rgba(46,204,113,.08)":"rgba(231,76,60,.08)",
+            border:`1px solid ${status.startsWith("✓")?"rgba(46,204,113,.3)":"rgba(231,76,60,.3)"}`,
+            borderRadius:4,padding:"8px 12px",fontSize:12,
+            color:status.startsWith("✓")?"#2ECC71":"#E74C3C",
+            fontFamily:"'IBM Plex Mono',monospace"}}>
+            {status}
+          </div>
+        )}
+
+        <div style={{marginTop:14,fontSize:11,color:"#7A8299",lineHeight:1.7}}>
+          O arquivo será baixado diretamente para o seu dispositivo.<br/>
+          JSON permite restauração futura. Excel é para consulta e auditoria.
+        </div>
+
+        <div style={{marginTop:16,textAlign:"right"}}>
+          <button className="btn btn-outline" onClick={onClose}>Fechar</button>
+        </div>
       </div>
     </div>
   );
@@ -1101,6 +1298,7 @@ function App() {
   const [currentUser,setCurrentUser] = useState(null);
   const [authChecked,setAuthChecked] = useState(false);
   const [showUserMgr,setShowUserMgr] = useState(false);
+  const [showBackup,setShowBackup]   = useState(false);
   const isAdmin    = currentUser?.perfil==="admin";
   const isGestor   = currentUser?.perfil==="gestor";
   const isOperador = currentUser?.perfil==="operador";
@@ -1368,8 +1566,9 @@ function App() {
       {showImportCad&&<ImportModal type="cadastro" onImport={importCadRows} onClose={()=>setShowImportCad(false)} certifiers={certifiers}/>}
       {showImportFin&&<ImportModal type="financeiro" onImport={importFinRows} onClose={()=>setShowImportFin(false)} certifiers={certifiers}/>}
       {showUserMgr&&<UserManager onClose={()=>setShowUserMgr(false)} currentUser={currentUser} showToast={showToast}/>}
+      {showBackup&&<BackupModal onClose={()=>setShowBackup(false)} showToast={showToast}/>}
 
-      <Nav active={tab} setActive={setTab} currentUser={currentUser} onLogout={handleLogout} onManageUsers={()=>setShowUserMgr(true)}/>
+      <Nav active={tab} setActive={setTab} currentUser={currentUser} onLogout={handleLogout} onManageUsers={()=>setShowUserMgr(true)} onBackup={()=>setShowBackup(true)}/>
 
       <div style={{padding:"24px 28px",maxWidth:1600,margin:"0 auto"}}>
 
