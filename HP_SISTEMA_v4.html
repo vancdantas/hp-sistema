@@ -777,9 +777,10 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
   const [editCBuf,setEditCBuf] = useState(null);
 
   // ── AUTO-SAVE ──────────────────────────────────────────────────────
-  const [autoStatus,setAutoStatus] = useState(null); // null | "saving" | "saved" | "error"
+  const [autoStatus,setAutoStatus] = useState(null);
   const [lastSaved,setLastSaved]   = useState(null);
   const [rascunhoId,setRascunhoId] = useState(initial?.id||null);
+  const [lastManualSave,setLastManualSave] = useState(null); // timestamp do último save manual
   const opRef  = useRef(op);
   const lotRef = useRef(lotes);
   useEffect(()=>{ opRef.current=op; },[op]);
@@ -787,6 +788,8 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
 
   const doAutoSave = useCallback(async()=>{
     if(!FB_READY||!db) return;
+    // Só executa se não houve save manual nos últimos 2 min
+    if(lastManualSave && (Date.now()-lastManualSave) < 120000) return;
     setAutoStatus("saving");
     try {
       const o = opRef.current;
@@ -809,11 +812,11 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
     } catch(e){
       setAutoStatus("error");
     }
-  },[rascunhoId,currentUser]);
+  },[rascunhoId,currentUser,lastManualSave]);
 
-  // Salva a cada 30 segundos
+  // Salva a cada 2 minutos
   useEffect(()=>{
-    const t = setInterval(doAutoSave, 30000);
+    const t = setInterval(doAutoSave, 120000);
     return ()=>clearInterval(t);
   },[doAutoSave]);
 
@@ -845,7 +848,8 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
     if(!editLBuf.codigo||!editLBuf.codigo.trim()){
       alert("Informe o Código do Lote antes de salvar.");return;
     }
-    setLotes(ls=>ls.map(l=>l.id===editLId?{...editLBuf,id:editLId}:l));
+    const loteAlterado = {...editLBuf, id:editLId, usuario_alteracao: currentUser?.nome||""};
+    setLotes(ls=>ls.map(l=>l.id===editLId?loteAlterado:l));
     setEditLId(null); setEditLBuf(null);
   };
   const upBuf = (k,v) => setEditLBuf(p=>{
@@ -883,7 +887,8 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
     if(!editCBuf.numero||!editCBuf.numero.trim()){
       alert("Informe a Identificação do container antes de salvar.");return;
     }
-    setLotes(ls=>ls.map(l=>l.id!==selId?l:{...l,containers:l.containers.map(c=>c.id===editCId?editCBuf:c)}));
+    const cntrAlterado = {...editCBuf, usuario_alteracao: currentUser?.nome||""};
+    setLotes(ls=>ls.map(l=>l.id!==selId?l:{...l,containers:l.containers.map(c=>c.id===editCId?cntrAlterado:c)}));
     setEditCId(null); setEditCBuf(null);
   };
   const delCntr = cid => setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:l.containers.filter(c=>c.id!==cid)}:l));
@@ -894,7 +899,9 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
     if(!op.operacao.trim()){alert("Informe a identificação da operação.");return;}
     const lotesCalc = lotes.map(l=>({...l,peso:calcPeso(l).toFixed(3),peso_seco:calcPesoSeco(l).toFixed(3)}));
     deleteRascunho(rascunhoId);
-    onSave({...op,lotes:lotesCalc,custo_total:totalOp});
+    setLastManualSave(Date.now());
+    const extraOp = initial?.id ? {usuario_alteracao: currentUser?.nome||""} : {};
+    onSave({...op,...extraOp,lotes:lotesCalc,custo_total:totalOp});
   };
 
   const handleCancel = () => {
@@ -916,6 +923,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
           <div className="section-title" style={{fontSize:18}}>{initial?.id?"EDITAR OPERAÇÃO":"NOVA OPERAÇÃO"}</div>
           {op.id_operacao&&<div style={{fontSize:11,color:"#7A8299",fontFamily:"'IBM Plex Mono',monospace",marginTop:2}}>ID: <span style={{color:"#C9A84C"}}>{op.id_operacao}</span></div>}
           {initial?.usuario_inclusao&&<div style={{fontSize:10,color:"#7A8299",marginTop:2}}>Incluído por: <span style={{color:"#E8ECF4"}}>{initial.usuario_inclusao}</span></div>}
+          {initial?.usuario_alteracao&&<div style={{fontSize:10,color:"#7A8299",marginTop:1}}>Alterado por: <span style={{color:"#3B82F6"}}>{initial.usuario_alteracao}</span></div>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           {/* Indicador de auto-save */}
@@ -1040,6 +1048,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                           <span><span style={{color:"#7A8299",fontSize:10}}>CÓDIGO: </span><span style={{color:"#C9A84C"}}>{selLote.codigo||"—"}</span></span>
                           <span><span style={{color:"#7A8299",fontSize:10}}>DATA: </span>{selLote.data_lote||"—"}</span>
                           {selLote.usuario_inclusao&&<span><span style={{color:"#7A8299",fontSize:10}}>INCLUÍDO POR: </span><span style={{color:"#E8ECF4"}}>{selLote.usuario_inclusao}</span></span>}
+                          {selLote.usuario_alteracao&&<span><span style={{color:"#7A8299",fontSize:10}}>ALTERADO POR: </span><span style={{color:"#3B82F6"}}>{selLote.usuario_alteracao}</span></span>}
                         </div>
                     }
                   </div>
@@ -1148,7 +1157,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                   {selLote.containers.length>0&&(
                     <>
                       <table>
-                        <thead><tr><th>#</th><th>Identificação</th><th>Gross Weight (kg)</th><th>Net Weight (kg)</th><th>Observações</th><th>Incluído por</th><th style={{textAlign:"center",minWidth:110}}>Ações</th></tr></thead>
+                        <thead><tr><th>#</th><th>Identificação</th><th>Gross Weight (kg)</th><th>Net Weight (kg)</th><th>Observações</th><th>Incluído por</th><th>Alterado por</th><th style={{textAlign:"center",minWidth:110}}>Ações</th></tr></thead>
                         <tbody>
                           {selLote.containers.map((c,i)=>(
                             editCId===c.id
@@ -1159,6 +1168,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                                 <td><input type="number" step="0.001" value={editCBuf.peso_liquido} onChange={e=>setEditCBuf(p=>({...p,peso_liquido:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
                                 <td><input value={editCBuf.obs} onChange={e=>setEditCBuf(p=>({...p,obs:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
                                 <td style={{color:"#7A8299",fontSize:11}}>{c.usuario_inclusao||"—"}</td>
+                                <td style={{color:"#3B82F6",fontSize:11}}>{c.usuario_alteracao||"—"}</td>
                                 <td style={{textAlign:"center"}}>
                                   <div style={{display:"flex",gap:4,justifyContent:"center"}}>
                                     <button className="btn btn-outline btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={cancelEditC}>✕</button>
@@ -1173,6 +1183,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                                 <td>{fmt(c.peso_liquido)}</td>
                                 <td style={{color:"#7A8299"}}>{c.obs||"—"}</td>
                                 <td style={{color:"#7A8299",fontSize:11}}>{c.usuario_inclusao||"—"}</td>
+                                <td style={{color:"#3B82F6",fontSize:11}}>{c.usuario_alteracao||"—"}</td>
                                 <td style={{textAlign:"center"}}>
                                   <div style={{display:"flex",gap:4,justifyContent:"center"}}>
                                     <button className="btn btn-outline btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={()=>startEditC(c)}>✎</button>
@@ -1423,7 +1434,8 @@ function App() {
         id_operacao: d.id_operacao||"",
         lotes:    lotesComUser,
         custo_total: d.custo_total||0,
-        usuario_inclusao: editCad?.usuario_inclusao || currentUser.nome
+        usuario_inclusao: editCad?.usuario_inclusao || currentUser.nome,
+        ...(editCad?.id ? {usuario_alteracao: d.usuario_alteracao || currentUser.nome} : {})
       };
       if(editCad?.id) await FS.update("cadastros", editCad.id, data);
       else             await FS.add("cadastros", data);
@@ -1449,7 +1461,11 @@ function App() {
   const saveFin = async (d) => {
     setSaving(true);
     try {
-      const data = {...d, usuario_inclusao: editFin?.usuario_inclusao || currentUser.nome};
+      const data = {
+        ...d,
+        usuario_inclusao: editFin?.usuario_inclusao || currentUser.nome,
+        ...(editFin?.id ? {usuario_alteracao: currentUser.nome} : {})
+      };
       if(editFin?.id) await FS.update("financeiros", editFin.id, data);
       else             await FS.add("financeiros", data);
       setShowFinForm(false); setEditFin(null);
@@ -1681,7 +1697,7 @@ function App() {
           <FilterBar filters={finFilters} setFilters={setFinFilters} count={filteredFin.length} total={financeiros.length} onClear={()=>setFinFilters({operacao:"",cliente:"",lote:"",data:""})}/>
           <div style={{overflowX:"auto"}}>
             <table>
-              <thead><tr><th>#</th><th>Data</th><th>Cliente</th><th>Lote</th><th>Operação</th><th>Valor</th><th>Forma Pgto</th><th>Observações</th><th>Incluído por</th><th style={{textAlign:"center",minWidth:120}}>Ações</th></tr></thead>
+              <thead><tr><th>#</th><th>Data</th><th>Cliente</th><th>Lote</th><th>Operação</th><th>Valor</th><th>Forma Pgto</th><th>Observações</th><th>Incluído por</th><th>Alterado por</th><th style={{textAlign:"center",minWidth:120}}>Ações</th></tr></thead>
               <tbody>
                 {filteredFin.map((f,i)=>(
                   <tr key={f.id}>
@@ -1692,6 +1708,7 @@ function App() {
                     <td><span className="tag badge-blue">{f.forma_pgto}</span></td>
                     <td style={{color:"#7A8299",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis"}}>{f.obs}</td>
                     <td style={{color:"#7A8299",fontSize:11}}>{f.usuario_inclusao||"—"}</td>
+                    <td style={{color:"#3B82F6",fontSize:11}}>{f.usuario_alteracao||"—"}</td>
                     <td style={{display:"flex",gap:6,justifyContent:"center",padding:"6px 8px"}}>
                       <button className="btn btn-outline btn-sm" onClick={()=>{setEditFin(f);setShowFinForm(true);}}>✎ Editar</button>
                       {canDelete&&<button className="btn btn-danger" onClick={()=>delFin(f.id)}>✕</button>}
