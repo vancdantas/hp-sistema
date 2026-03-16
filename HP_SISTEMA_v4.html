@@ -41,6 +41,7 @@ tbody td{padding:7px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;w
 .badge-green{background:rgba(46,204,113,.15);color:#2ECC71;border:1px solid rgba(46,204,113,.3)}
 .badge-admin{background:rgba(201,168,76,.15);color:#C9A84C;border:1px solid rgba(201,168,76,.4);padding:2px 10px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.1em}
 .badge-operador{background:rgba(59,130,246,.15);color:#3B82F6;border:1px solid rgba(59,130,246,.4);padding:2px 10px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.1em}
+.badge-gestor{background:rgba(46,204,113,.15);color:#2ECC71;border:1px solid rgba(46,204,113,.4);padding:2px 10px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.1em}
 .filter-bar{background:#161A23;border:1px solid #2E3650;border-radius:8px;padding:16px 20px;margin-bottom:16px}
 .toast{position:fixed;bottom:28px;right:28px;background:#1E2330;border:1px solid #2E3650;border-radius:6px;padding:12px 20px;font-size:13px;z-index:2000;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
 .toast-success{border-color:rgba(46,204,113,.5);color:#2ECC71}
@@ -134,15 +135,19 @@ const DEFAULT_PAYMENT  = ["PIX","TED","DOC","DINHEIRO","CHEQUE","OUTRO"];
 const DEFAULT_CERTIFIERS = ["ASA","SGS","BUREAU VERITAS","INTERTEK","OUTRO"];
 const DEFAULT_USERS = [
   {login:"admin",    pwd:hashPwd("admin123"),    nome:"Administrador", perfil:"admin"},
-  {login:"operador", pwd:hashPwd("operador123"), nome:"Operador",      perfil:"operador"}
+  {login:"operador", pwd:hashPwd("operador123"), nome:"Operador",      perfil:"operador"},
+  {login:"gestor",   pwd:hashPwd("gestor123"),   nome:"Gestor",        perfil:"gestor"}
 ];
-const TABS = [
-  {id:"dashboard",    label:"PAINEL"},
-  {id:"cadastro",     label:"CADASTRO"},
-  {id:"financeiro",   label:"FINANCEIRO"},
-  {id:"rel_operacao", label:"REL. OPERAÇÃO"},
-  {id:"rel_financeiro",label:"REL. FINANCEIRO"}
+const ALL_TABS = [
+  {id:"dashboard",     label:"PAINEL",          perfis:["admin","gestor"]},
+  {id:"cadastro",      label:"CADASTRO",         perfis:["admin","operador"]},
+  {id:"financeiro",    label:"FINANCEIRO",       perfis:["admin","operador"]},
+  {id:"rel_operacao",  label:"REL. OPERAÇÃO",    perfis:["admin","gestor"]},
+  {id:"rel_financeiro",label:"REL. FINANCEIRO",  perfis:["admin","gestor"]}
 ];
+const tabsForPerfil = p => ALL_TABS.filter(t=>t.perfis.includes(p));
+const perfilLabel = p => p==="admin"?"ADMIN":p==="gestor"?"GESTOR":"OPERADOR";
+const perfilBadge = p => p==="admin"?"badge-admin":p==="gestor"?"badge-gestor":"badge-operador";
 
 // ── SETUP SCREEN ──────────────────────────────────────────────────────
 const SetupScreen = () => (
@@ -210,7 +215,9 @@ const Toast = ({msg,type,onDone}) => {
 };
 
 // ── NAV ───────────────────────────────────────────────────────────────
-const Nav = ({active,setActive,currentUser,onLogout,onManageUsers}) => (
+const Nav = ({active,setActive,currentUser,onLogout,onManageUsers}) => {
+  const tabs = tabsForPerfil(currentUser.perfil);
+  return (
   <nav style={{background:"#161A23",borderBottom:"1px solid #2E3650",display:"flex",alignItems:"center",padding:"0 24px",position:"sticky",top:0,zIndex:100}} className="no-print">
     <div style={{display:"flex",alignItems:"center",gap:10,marginRight:32,padding:"12px 0"}}>
       <div style={{width:30,height:30,background:"linear-gradient(135deg,#C9A84C,#8B5E1A)",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontFamily:"'Bebas Neue',sans-serif",color:"#0D0F14",flexShrink:0}}>HP</div>
@@ -220,20 +227,21 @@ const Nav = ({active,setActive,currentUser,onLogout,onManageUsers}) => (
       </div>
     </div>
     <div style={{display:"flex",gap:0,flex:1}}>
-      {TABS.map(t=>(
+      {tabs.map(t=>(
         <button key={t.id} className="btn" onClick={()=>setActive(t.id)} style={{background:active===t.id?"rgba(201,168,76,.12)":"transparent",color:active===t.id?"#C9A84C":"#7A8299",border:"none",borderBottom:active===t.id?"2px solid #C9A84C":"2px solid transparent",borderRadius:0,padding:"12px 14px",fontSize:11,letterSpacing:".08em",cursor:"pointer",whiteSpace:"nowrap"}}>{t.label}</button>
       ))}
     </div>
     <div style={{display:"flex",gap:10,alignItems:"center",paddingLeft:16,borderLeft:"1px solid #2E3650",flexShrink:0}}>
       <div style={{textAlign:"right"}}>
         <div style={{fontSize:12,fontWeight:600,color:"#E8ECF4"}}>{currentUser.nome}</div>
-        <div style={{marginTop:2}}><span className={currentUser.perfil==="admin"?"badge-admin":"badge-operador"}>{currentUser.perfil==="admin"?"ADMIN":"OPERADOR"}</span></div>
+        <div style={{marginTop:2}}><span className={perfilBadge(currentUser.perfil)}>{perfilLabel(currentUser.perfil)}</span></div>
       </div>
       {currentUser.perfil==="admin"&&<button className="btn btn-outline btn-sm" onClick={onManageUsers} style={{fontSize:11}}>👥 Usuários</button>}
       <button className="btn btn-outline btn-sm" onClick={onLogout} style={{fontSize:11,borderColor:"#E74C3C",color:"#E74C3C"}}>Sair</button>
     </div>
   </nav>
-);
+  );
+};
 
 // ── LOGIN ─────────────────────────────────────────────────────────────
 const LoginScreen = ({onLogin}) => {
@@ -331,6 +339,7 @@ const UserManager = ({onClose,currentUser,showToast}) => {
             <div><label>Perfil</label>
               <select value={form.perfil} onChange={e=>setForm(p=>({...p,perfil:e.target.value}))}>
                 <option value="admin">Administrador</option>
+                <option value="gestor">Gestor</option>
                 <option value="operador">Operador</option>
               </select>
             </div>
@@ -346,7 +355,7 @@ const UserManager = ({onClose,currentUser,showToast}) => {
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:13}}>{u.nome}</span>
                 <span style={{fontSize:11,color:"#7A8299"}}>@{u.login}</span>
-                <span className={u.perfil==="admin"?"badge-admin":"badge-operador"}>{u.perfil==="admin"?"ADMIN":"OPERADOR"}</span>
+                <span className={perfilBadge(u.perfil)}>{perfilLabel(u.perfil)}</span>
                 {u.id===currentUser.id&&<span style={{fontSize:10,color:"#7A8299"}}>(você)</span>}
               </div>
               <div style={{display:"flex",gap:6}}>
@@ -536,7 +545,7 @@ const emptyLote = () => ({
   id:"l"+Date.now()+Math.random().toString(36).slice(2,7),
   codigo:"",cu_pct:"",cert_cu_pct:"",vl_ponto_cu:"",valor_cu:"",
   au_gr:"",cert_au:"",ponto_au:"",valor_au:"",
-  umidade:"",certificadora:"ASA",invoice:"",
+  umidade:"",certificadora:"ASA",data_lote:today(),
   custo_total:0,containers:[]
 });
 const emptyCntr = () => ({
@@ -556,21 +565,71 @@ const calcPeso    = l => l.containers.reduce((a,c)=>a+(parseFloat(c.peso_liquido
 // Peso seco = peso * (1 - umidade/100)
 const calcPesoSeco = l => { const p=calcPeso(l); const u=parseFloat(l.umidade)||0; return p*(1-u/100); };
 
-const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,opSeq}) => {
+const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,opSeq,currentUser}) => {
   const [op,setOp] = useState(initial
     ? {operacao:initial.operacao||"",cliente:initial.cliente||"",data:initial.data||today(),id_operacao:initial.id_operacao||""}
     : {operacao:"",cliente:"",data:today(),id_operacao:""});
   const [lotes,setLotes]       = useState(initial?.lotes?.length ? initial.lotes : []);
   const [selId,setSelId]       = useState(null);
   const [loteTab,setLoteTab]   = useState("dados");
-  // lote edit buffer
   const [editLId,setEditLId]   = useState(null);
   const [editLBuf,setEditLBuf] = useState(null);
-  // container add / edit
   const [addCntr,setAddCntr]   = useState(false);
   const [newCntr,setNewCntr]   = useState(emptyCntr());
   const [editCId,setEditCId]   = useState(null);
   const [editCBuf,setEditCBuf] = useState(null);
+
+  // ── AUTO-SAVE ──────────────────────────────────────────────────────
+  const [autoStatus,setAutoStatus] = useState(null); // null | "saving" | "saved" | "error"
+  const [lastSaved,setLastSaved]   = useState(null);
+  const [rascunhoId,setRascunhoId] = useState(initial?.id||null);
+  const opRef  = useRef(op);
+  const lotRef = useRef(lotes);
+  useEffect(()=>{ opRef.current=op; },[op]);
+  useEffect(()=>{ lotRef.current=lotes; },[lotes]);
+
+  const doAutoSave = useCallback(async()=>{
+    if(!FB_READY||!db) return;
+    setAutoStatus("saving");
+    try {
+      const o = opRef.current;
+      const ls = lotRef.current;
+      const lotesCalc = ls.map(l=>({...l,peso:calcPeso(l).toFixed(3),peso_seco:calcPesoSeco(l).toFixed(3)}));
+      const data = {
+        ...o, lotes:lotesCalc,
+        custo_total: ls.reduce((a,l)=>a+(parseFloat(l.custo_total)||0),0),
+        _rascunho:true, _user:currentUser?.id||"",
+        _savedAt: new Date().toISOString()
+      };
+      if(rascunhoId){
+        await db.collection("rascunhos").doc(rascunhoId).set(data,{merge:true});
+      } else {
+        const ref = await db.collection("rascunhos").add(data);
+        setRascunhoId(ref.id);
+      }
+      setLastSaved(new Date());
+      setAutoStatus("saved");
+    } catch(e){
+      setAutoStatus("error");
+    }
+  },[rascunhoId,currentUser]);
+
+  // Salva a cada 30 segundos
+  useEffect(()=>{
+    const t = setInterval(doAutoSave, 30000);
+    return ()=>clearInterval(t);
+  },[doAutoSave]);
+
+  // Salva também quando componente desmonta (fecha sem finalizar)
+  useEffect(()=>{
+    return ()=>{ doAutoSave(); };
+  },[]);
+
+  const deleteRascunho = async(id)=>{
+    if(id&&FB_READY&&db){
+      try{ await db.collection("rascunhos").doc(id).delete(); }catch(_){}
+    }
+  };
 
   // Auto-gerar ID ao mudar cliente ou data (só em nova operação)
   useEffect(()=>{
@@ -580,6 +639,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
   const selLote = lotes.find(l=>l.id===selId)||null;
   const isEditL = editLId===selId;
   const loteView = isEditL ? editLBuf : selLote;
+  const canDeleteCntr = currentUser?.perfil==="admin";
 
   // ── Lote CRUD ──
   const startEditL = l => { setEditLId(l.id); setEditLBuf({...l}); };
@@ -599,7 +659,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
     return u;
   });
   const addLote = () => {
-    const l=emptyLote();
+    const l={...emptyLote(), usuario_inclusao: currentUser?.nome||""};
     setLotes(ls=>[...ls,l]);
     setSelId(l.id);
     setLoteTab("dados");
@@ -616,7 +676,8 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
     if(!newCntr.numero.trim()){
       alert("Informe a Identificação do container antes de salvar.");return;
     }
-    setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:[...l.containers,newCntr]}:l));
+    const cntrComUser = {...newCntr, usuario_inclusao: currentUser?.nome||""};
+    setLotes(ls=>ls.map(l=>l.id===selId?{...l,containers:[...l.containers,cntrComUser]}:l));
     setNewCntr(emptyCntr()); setAddCntr(false);
   };
   const startEditC = c => { setEditCId(c.id); setEditCBuf({...c}); };
@@ -635,7 +696,19 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
   const handleSave = () => {
     if(!op.operacao.trim()){alert("Informe a identificação da operação.");return;}
     const lotesCalc = lotes.map(l=>({...l,peso:calcPeso(l).toFixed(3),peso_seco:calcPesoSeco(l).toFixed(3)}));
+    deleteRascunho(rascunhoId);
     onSave({...op,lotes:lotesCalc,custo_total:totalOp});
+  };
+
+  const handleCancel = () => {
+    if(lotes.length>0||op.operacao){
+      if(confirm("Cancelar operação? O rascunho salvo automaticamente será mantido no Firebase e pode ser recuperado mais tarde.")){
+        onCancel();
+      }
+    } else {
+      deleteRascunho(rascunhoId);
+      onCancel();
+    }
   };
 
   return (
@@ -645,9 +718,20 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
         <div>
           <div className="section-title" style={{fontSize:18}}>{initial?.id?"EDITAR OPERAÇÃO":"NOVA OPERAÇÃO"}</div>
           {op.id_operacao&&<div style={{fontSize:11,color:"#7A8299",fontFamily:"'IBM Plex Mono',monospace",marginTop:2}}>ID: <span style={{color:"#C9A84C"}}>{op.id_operacao}</span></div>}
+          {initial?.usuario_inclusao&&<div style={{fontSize:10,color:"#7A8299",marginTop:2}}>Incluído por: <span style={{color:"#E8ECF4"}}>{initial.usuario_inclusao}</span></div>}
         </div>
-        <div style={{display:"flex",gap:8}}>
-          <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancelar</button>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          {/* Indicador de auto-save */}
+          <div style={{fontSize:11,fontFamily:"'IBM Plex Mono',monospace",display:"flex",alignItems:"center",gap:6}}>
+            {autoStatus==="saving"&&<><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#C9A84C",animation:"spin .7s linear infinite"}}/>
+              <span style={{color:"#C9A84C"}}>Salvando rascunho...</span></>}
+            {autoStatus==="saved"&&<><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#2ECC71"}}/>
+              <span style={{color:"#7A8299"}}>Rascunho salvo {lastSaved?lastSaved.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):""}</span></>}
+            {autoStatus==="error"&&<><span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#E74C3C"}}/>
+              <span style={{color:"#E74C3C"}}>Erro ao salvar rascunho</span></>}
+            {!autoStatus&&<span style={{color:"#7A8299",fontSize:10}}>Auto-save: 30s</span>}
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={handleCancel}>Cancelar</button>
           <button className="btn btn-gold btn-sm" onClick={handleSave} disabled={saving}>{saving?"Salvando...":"Finalizar Operação"}</button>
         </div>
       </div>
@@ -696,8 +780,8 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                   <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0}}>
                     <button className="btn btn-outline btn-sm" style={{padding:"2px 8px",fontSize:10}}
                       onClick={e=>{e.stopPropagation();setSelId(l.id);startEditL(l);setLoteTab("dados");}}>✎ Editar</button>
-                    <button className="btn btn-danger" style={{padding:"2px 8px",fontSize:10}}
-                      onClick={e=>{e.stopPropagation();delLote(l.id);}}>✕</button>
+                    {canDeleteCntr&&<button className="btn btn-danger" style={{padding:"2px 8px",fontSize:10}}
+                      onClick={e=>{e.stopPropagation();delLote(l.id);}}>✕</button>}
                   </div>
                 </div>
               </div>
@@ -753,11 +837,12 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                     {isEditL
                       ? <Grid cols={2} style={{maxWidth:480}}>
                           <FG label="Código do Lote"><input value={editLBuf.codigo} onChange={e=>upBuf("codigo",e.target.value.toUpperCase())} placeholder="Ex: GR008" autoFocus/></FG>
-                          <FG label="Invoice"><input value={editLBuf.invoice} onChange={e=>upBuf("invoice",e.target.value)} placeholder="Número"/></FG>
+                          <FG label="Data do Lote"><input type="date" value={editLBuf.data_lote||""} onChange={e=>upBuf("data_lote",e.target.value)}/></FG>
                         </Grid>
-                      : <div style={{display:"flex",gap:24,fontFamily:"'IBM Plex Mono',monospace",fontSize:13}}>
+                      : <div style={{display:"flex",gap:24,fontFamily:"'IBM Plex Mono',monospace",fontSize:13,flexWrap:"wrap"}}>
                           <span><span style={{color:"#7A8299",fontSize:10}}>CÓDIGO: </span><span style={{color:"#C9A84C"}}>{selLote.codigo||"—"}</span></span>
-                          <span><span style={{color:"#7A8299",fontSize:10}}>INVOICE: </span>{selLote.invoice||"—"}</span>
+                          <span><span style={{color:"#7A8299",fontSize:10}}>DATA: </span>{selLote.data_lote||"—"}</span>
+                          {selLote.usuario_inclusao&&<span><span style={{color:"#7A8299",fontSize:10}}>INCLUÍDO POR: </span><span style={{color:"#E8ECF4"}}>{selLote.usuario_inclusao}</span></span>}
                         </div>
                     }
                   </div>
@@ -866,7 +951,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                   {selLote.containers.length>0&&(
                     <>
                       <table>
-                        <thead><tr><th>#</th><th>Identificação</th><th>Gross Weight (kg)</th><th>Net Weight (kg)</th><th>Observações</th><th style={{textAlign:"center",minWidth:110}}>Ações</th></tr></thead>
+                        <thead><tr><th>#</th><th>Identificação</th><th>Gross Weight (kg)</th><th>Net Weight (kg)</th><th>Observações</th><th>Incluído por</th><th style={{textAlign:"center",minWidth:110}}>Ações</th></tr></thead>
                         <tbody>
                           {selLote.containers.map((c,i)=>(
                             editCId===c.id
@@ -876,6 +961,7 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                                 <td><input type="number" step="0.001" value={editCBuf.peso_bruto} onChange={e=>setEditCBuf(p=>({...p,peso_bruto:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
                                 <td><input type="number" step="0.001" value={editCBuf.peso_liquido} onChange={e=>setEditCBuf(p=>({...p,peso_liquido:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
                                 <td><input value={editCBuf.obs} onChange={e=>setEditCBuf(p=>({...p,obs:e.target.value}))} style={{padding:"4px 8px",fontSize:12,minWidth:80}}/></td>
+                                <td style={{color:"#7A8299",fontSize:11}}>{c.usuario_inclusao||"—"}</td>
                                 <td style={{textAlign:"center"}}>
                                   <div style={{display:"flex",gap:4,justifyContent:"center"}}>
                                     <button className="btn btn-outline btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={cancelEditC}>✕</button>
@@ -889,10 +975,11 @@ const CadastroForm = ({initial,onSave,onCancel,certifiers,onManageCerts,saving,o
                                 <td>{fmt(c.peso_bruto)}</td>
                                 <td>{fmt(c.peso_liquido)}</td>
                                 <td style={{color:"#7A8299"}}>{c.obs||"—"}</td>
+                                <td style={{color:"#7A8299",fontSize:11}}>{c.usuario_inclusao||"—"}</td>
                                 <td style={{textAlign:"center"}}>
                                   <div style={{display:"flex",gap:4,justifyContent:"center"}}>
                                     <button className="btn btn-outline btn-sm" style={{fontSize:10,padding:"3px 8px"}} onClick={()=>startEditC(c)}>✎</button>
-                                    <button className="btn btn-danger" style={{padding:"3px 8px"}} onClick={()=>delCntr(c.id)}>✕</button>
+                                    {canDeleteCntr&&<button className="btn btn-danger" style={{padding:"3px 8px"}} onClick={()=>delCntr(c.id)}>✕</button>}
                                   </div>
                                 </td>
                               </tr>
@@ -1014,7 +1101,11 @@ function App() {
   const [currentUser,setCurrentUser] = useState(null);
   const [authChecked,setAuthChecked] = useState(false);
   const [showUserMgr,setShowUserMgr] = useState(false);
-  const isAdmin = currentUser?.perfil==="admin";
+  const isAdmin    = currentUser?.perfil==="admin";
+  const isGestor   = currentUser?.perfil==="gestor";
+  const isOperador = currentUser?.perfil==="operador";
+  const canDelete  = isAdmin;
+  const canImport  = isAdmin;
 
   // ── DATA ────────────────────────────────────────────────────────────
   const [cadastros,setCadastros]     = useState([]);
@@ -1023,7 +1114,13 @@ function App() {
   const [dataReady,setDataReady]     = useState(false);
 
   // ── UI STATE ────────────────────────────────────────────────────────
-  const [tab,setTab]                   = useState("dashboard");
+  const [tab,setTab] = useState("dashboard");
+  // Redireciona para a primeira aba permitida se o perfil não tiver acesso à aba atual
+  useEffect(()=>{
+    if(!currentUser) return;
+    const allowed = tabsForPerfil(currentUser.perfil).map(t=>t.id);
+    if(!allowed.includes(tab)) setTab(allowed[0]||"dashboard");
+  },[currentUser,tab]);
   const [showCadForm,setShowCadForm]   = useState(false);
   const [editCad,setEditCad]           = useState(null);
   const [showFinForm,setShowFinForm]   = useState(false);
@@ -1032,6 +1129,7 @@ function App() {
   const [showImportCad,setShowImportCad] = useState(false);
   const [showImportFin,setShowImportFin] = useState(false);
   const [saving,setSaving]             = useState(false);
+  const [rascunhos,setRascunhos]       = useState([]);
   const [cadFilters,setCadFilters]     = useState({operacao:"",cliente:"",lote:"",data:""});
   const [finFilters,setFinFilters]     = useState({operacao:"",cliente:"",lote:"",data:""});
   const [relOpF,setRelOpF]             = useState({lote:"",operacao:"",data_ini:"",data_fim:""});
@@ -1076,6 +1174,13 @@ function App() {
 
     unsubs.push(FS.onSnap("cadastros", setCadastros));
     unsubs.push(FS.onSnap("financeiros", setFinanceiros));
+    // Rascunhos do usuário atual
+    const unsubR = db.collection("rascunhos")
+      .where("_user","==",currentUser.id||"")
+      .onSnapshot(snap=>{
+        setRascunhos(snap.docs.map(d=>({...d.data(),id:d.id})));
+      });
+    unsubs.push(unsubR);
 
     // Load config (not real-time, but reload on mount)
     db.collection("config").doc("app").get().then(d=>{
@@ -1105,12 +1210,22 @@ function App() {
   const saveCad = async (d) => {
     setSaving(true);
     try {
+      const lotesComUser = (d.lotes||[]).map(l=>({
+        ...l,
+        usuario_inclusao: l.usuario_inclusao || currentUser.nome,
+        containers: (l.containers||[]).map(c=>({
+          ...c,
+          usuario_inclusao: c.usuario_inclusao || currentUser.nome
+        }))
+      }));
       const data = {
         operacao: d.operacao||"",
         cliente:  d.cliente||"",
         data:     d.data||today(),
-        lotes:    d.lotes||[],
-        custo_total: d.custo_total||0
+        id_operacao: d.id_operacao||"",
+        lotes:    lotesComUser,
+        custo_total: d.custo_total||0,
+        usuario_inclusao: editCad?.usuario_inclusao || currentUser.nome
       };
       if(editCad?.id) await FS.update("cadastros", editCad.id, data);
       else             await FS.add("cadastros", data);
@@ -1136,8 +1251,9 @@ function App() {
   const saveFin = async (d) => {
     setSaving(true);
     try {
-      if(editFin?.id) await FS.update("financeiros", editFin.id, d);
-      else             await FS.add("financeiros", d);
+      const data = {...d, usuario_inclusao: editFin?.usuario_inclusao || currentUser.nome};
+      if(editFin?.id) await FS.update("financeiros", editFin.id, data);
+      else             await FS.add("financeiros", data);
       setShowFinForm(false); setEditFin(null);
       showToast("Recebimento salvo!");
     } catch(e){ showToast("Erro ao salvar: "+e.message,"error"); }
@@ -1177,7 +1293,7 @@ function App() {
 
   const filterOp = [];
   cadastros.forEach(c=>{
-    const lts = c.lotes&&c.lotes.length>0 ? c.lotes : [{codigo:c.lote||"",cu_pct:c.cu_pct,cert_cu_pct:c.cert_cu_pct,vl_ponto_cu:c.vl_ponto_cu,valor_cu:c.valor_cu,au_gr:c.au_gr,cert_au:c.cert_au,ponto_au:c.ponto_au,valor_au:c.valor_au,peso:c.peso,umidade:c.umidade,peso_seco:c.peso_seco,certificadora:c.certificadora,invoice:c.invoice,custo_total:c.custo_total,containers:[]}];
+    const lts = c.lotes&&c.lotes.length>0 ? c.lotes : [{codigo:c.lote||"",cu_pct:c.cu_pct,cert_cu_pct:c.cert_cu_pct,vl_ponto_cu:c.vl_ponto_cu,valor_cu:c.valor_cu,au_gr:c.au_gr,cert_au:c.cert_au,ponto_au:c.ponto_au,valor_au:c.valor_au,peso:c.peso,umidade:c.umidade,peso_seco:c.peso_seco,certificadora:c.certificadora,data_lote:c.data_lote||c.data||"",custo_total:c.custo_total,containers:[]}];
     lts.forEach(l=>{
       if(relOpF.lote&&!(l.codigo||"").toLowerCase().includes(relOpF.lote.toLowerCase()))return;
       if(relOpF.operacao&&!c.operacao.toLowerCase().includes(relOpF.operacao.toLowerCase()))return;
@@ -1243,7 +1359,7 @@ function App() {
       {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
 
       {showCadForm&&<div className="modal-overlay"><div className="modal fade-in" style={{maxWidth:1100,height:"88vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <CadastroForm initial={editCad} onSave={saveCad} onCancel={()=>{setShowCadForm(false);setEditCad(null);}} certifiers={certifiers} onManageCerts={()=>setShowCertMgr(true)} saving={saving} opSeq={editCad?null:cadastros.length+1}/>
+        <CadastroForm initial={editCad} onSave={saveCad} onCancel={()=>{setShowCadForm(false);setEditCad(null);}} certifiers={certifiers} onManageCerts={()=>setShowCertMgr(true)} saving={saving} opSeq={editCad?null:cadastros.length+1} currentUser={currentUser}/>
       </div></div>}
       {showFinForm&&<div className="modal-overlay"><div className="modal fade-in" style={{maxWidth:700}}>
         <FinanceiroForm initial={editFin} onSave={saveFin} onCancel={()=>{setShowFinForm(false);setEditFin(null);}} cadastros={cadastros} saving={saving}/>
@@ -1307,7 +1423,18 @@ function App() {
             </div>
             <div style={{display:"flex",gap:8}}>
               <button className="btn btn-outline btn-sm" onClick={()=>setShowCertMgr(true)}>⚙ Certificadoras</button>
-              {isAdmin&&<button className="btn btn-green btn-sm" onClick={()=>setShowImportCad(true)}>⬆ Importar Planilha</button>}
+              {canImport&&<button className="btn btn-green btn-sm" onClick={()=>setShowImportCad(true)}>⬆ Importar Planilha</button>}
+              {rascunhos.length>0&&(
+                <button className="btn btn-outline btn-sm" style={{borderColor:"#C9A84C",color:"#C9A84C"}}
+                  onClick={()=>{
+                    const r=rascunhos[0];
+                    if(confirm(`Recuperar rascunho "${r.operacao||"sem nome"}" salvo em ${r._savedAt?new Date(r._savedAt).toLocaleString("pt-BR"):"data desconhecida"}?`)){
+                      setEditCad(r); setShowCadForm(true);
+                    }
+                  }}>
+                  ⟳ Rascunho ({rascunhos.length})
+                </button>
+              )}
               <button className="btn btn-gold" onClick={()=>{setEditCad(null);setShowCadForm(true);}}>+ Nova Operação</button>
             </div>
           </div>
@@ -1329,7 +1456,7 @@ function App() {
                       <td style={{fontWeight:600,color:"#C9A84C"}}>{fmtCur(c.custo_total)}</td>
                       <td style={{display:"flex",gap:6,justifyContent:"center",padding:"6px 8px"}}>
                         <button className="btn btn-outline btn-sm" onClick={()=>{setEditCad(c);setShowCadForm(true);}}>✎ Editar</button>
-                        <button className="btn btn-danger" onClick={()=>delCad(c.id)}>✕</button>
+                        {canDelete&&<button className="btn btn-danger" onClick={()=>delCad(c.id)}>✕</button>}
                       </td>
                     </tr>
                   );
@@ -1348,14 +1475,14 @@ function App() {
               <div style={{color:"#7A8299",fontSize:13}}>{financeiros.length>0&&<>Saldo atual: <span style={{color:"#2ECC71",fontFamily:"'IBM Plex Mono',monospace"}}>{fmtCur(saldo)}</span></>}</div>
             </div>
             <div style={{display:"flex",gap:8}}>
-              {isAdmin&&<button className="btn btn-green btn-sm" onClick={()=>setShowImportFin(true)}>⬆ Importar Planilha</button>}
+              {canImport&&<button className="btn btn-green btn-sm" onClick={()=>setShowImportFin(true)}>⬆ Importar Planilha</button>}
               <button className="btn btn-gold" onClick={()=>{setEditFin(null);setShowFinForm(true);}}>+ Novo Recebimento</button>
             </div>
           </div>
           <FilterBar filters={finFilters} setFilters={setFinFilters} count={filteredFin.length} total={financeiros.length} onClear={()=>setFinFilters({operacao:"",cliente:"",lote:"",data:""})}/>
           <div style={{overflowX:"auto"}}>
             <table>
-              <thead><tr><th>#</th><th>Data</th><th>Cliente</th><th>Lote</th><th>Operação</th><th>Valor</th><th>Forma Pgto</th><th>Observações</th><th style={{textAlign:"center",minWidth:120}}>Ações</th></tr></thead>
+              <thead><tr><th>#</th><th>Data</th><th>Cliente</th><th>Lote</th><th>Operação</th><th>Valor</th><th>Forma Pgto</th><th>Observações</th><th>Incluído por</th><th style={{textAlign:"center",minWidth:120}}>Ações</th></tr></thead>
               <tbody>
                 {filteredFin.map((f,i)=>(
                   <tr key={f.id}>
@@ -1365,13 +1492,14 @@ function App() {
                     <td className="text-green" style={{fontWeight:600}}>{fmtCur(f.valor)}</td>
                     <td><span className="tag badge-blue">{f.forma_pgto}</span></td>
                     <td style={{color:"#7A8299",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis"}}>{f.obs}</td>
+                    <td style={{color:"#7A8299",fontSize:11}}>{f.usuario_inclusao||"—"}</td>
                     <td style={{display:"flex",gap:6,justifyContent:"center",padding:"6px 8px"}}>
                       <button className="btn btn-outline btn-sm" onClick={()=>{setEditFin(f);setShowFinForm(true);}}>✎ Editar</button>
-                      <button className="btn btn-danger" onClick={()=>delFin(f.id)}>✕</button>
+                      {canDelete&&<button className="btn btn-danger" onClick={()=>delFin(f.id)}>✕</button>}
                     </td>
                   </tr>
                 ))}
-                {filteredFin.length===0&&<tr><td colSpan={9} style={{textAlign:"center",color:"#7A8299",padding:40}}>{financeiros.length===0?"Nenhum recebimento registrado.":"Nenhum resultado para os filtros."}</td></tr>}
+                {filteredFin.length===0&&<tr><td colSpan={10} style={{textAlign:"center",color:"#7A8299",padding:40}}>{financeiros.length===0?"Nenhum recebimento registrado.":"Nenhum resultado para os filtros."}</td></tr>}
               </tbody>
             </table>
           </div>
